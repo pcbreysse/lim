@@ -41,6 +41,21 @@ Instrumental effects are included within the line_obs.LineObs() class, which is 
 
 The class vid.VID(), which is a subclass of LineObs, contains modules for computing the one-point statistics of a model.  This module currently uses the lognormal-based formalism of Breysse et al. (2017).
 
+The LineModel() class and its subclasses also include a reset() method, which updates the class back to the parameters it had when it was first called.  This is useful when making temporary changes to one or more input parameters.  For example,
+
+```
+m = LineModel(nuObs=15*u.GHz)
+m.update(nuObs=30*u.GHz)
+m.reset()
+```
+
+will produce the same results as
+
+```
+m = LineModel(nuObs=15*u.GHz)
+m.update(nuObs=30*u.GHz)
+m.update(nuObs=15*u.GHz)
+```
 
 ## DocTests
 

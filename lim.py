@@ -177,9 +177,9 @@ class LineModel(object):
             
         # Create overall lists of parameters (Only used if using one of 
         # lim's subclasses
-        self._params = {} # Don't want .update to change _lim_params
+        self._input_params = {} # Don't want .update to change _lim_params
         self._default_params = {}
-        self._params.update(self._lim_params)
+        self._input_params.update(self._lim_params)
         self._default_params.update(self._default_lim_params)
         
         # Create list of cached properties
@@ -603,6 +603,12 @@ class LineModel(object):
             self.h.update(hmf_model=new_params['hmf_model'])
         elif 'nuObs' in new_params:
             self.h.update(z=self.z)
+            
+    #####################################################
+    # Method for resetting to original input parameters #
+    #####################################################
+    def reset(self):
+        self.update(**self._input_params)
             
 ############
 # Doctests #

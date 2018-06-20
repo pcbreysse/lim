@@ -123,7 +123,7 @@ class VID(LineObs):
             setattr(self,key,self._vid_params[key])
             
         # Combine vid_params with obs_params
-        self._params.update(self._vid_params)
+        self._input_params.update(self._vid_params)
         self._default_params.update(self._default_vid_params)
         
 

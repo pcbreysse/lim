@@ -77,7 +77,7 @@ class LineObs(LineModel):
             setattr(self,key,self._obs_params[key])
         
         # Combine lim_params with obs_params
-        self._params.update(self._obs_params)
+        self._input_params.update(self._obs_params)
         self._default_params.update(self._default_obs_params)
         
     ##############
