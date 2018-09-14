@@ -26,14 +26,11 @@ def MassPow(Mvec, MLpar, z):
     Parameters:
     A	      Overall amplitude, dimensionless
     b         Power law slope, dimensionless
-    Mcut_min  Minimum mass below which L=0 (in M_sun)
-    Mcut_max  Maximum mass above which L=0 (in M_sun)
     
     Assumed to be redshift independent
 
     >>> Mvec = np.array([1.e8,1.e10,1.e16]) * u.Msun
-    >>> MLpar = {'A':2e-6, 'b':1., \
-        'Mcut_min':1e9*u.Msun, 'Mcut_max':1e15*u.Msun}
+    >>> MLpar = {'A':2e-6, 'b':1.}
     >>> z = 3.0
     >>> print MassPow(Mvec,MLpar,z)
     [     0.  20000.      0.] solLum
@@ -41,14 +38,7 @@ def MassPow(Mvec, MLpar, z):
 
     A = MLpar['A']
     b = MLpar['b']
-    Mcut_min = MLpar['Mcut_min']
-    Mcut_max = MLpar['Mcut_max']
-
     L = A * np.array(Mvec)**b*u.Lsun
-
-    L[Mvec < Mcut_min] = 0.*u.Lsun
-    L[Mvec > Mcut_max] = 0.*u.Lsun
-
     return L
     
 def DblPwr(Mvec, MLpar, z):
@@ -62,12 +52,10 @@ def DblPwr(Mvec, MLpar, z):
     b2        Low mass power law, dimensionless
     b3        High mass power law, dimensionless
     Mstar     Power law turnover mass, in M_sun
-    Mcut_min  Minimum mass below which L=0 (in M_sun)
-    Mcut_max  Maximum mass above which L=0 (in M_sun)
     
     >>> Mvec = np.array([1.e8,1.e10,1.e16]) * u.Msun
     >>> MLpar = {'A':5.8e-3, 'b1':0.35, 'b2':1.97, 'b3':-2.92, \
-        'Mstar':8.e11*u.Msun, 'Mcut_min':1e9*u.Msun, 'Mcut_max':1e15*u.Msun}
+        'Mstar':8.e11*u.Msun}
     >>> z = 3.0
     >>> print DblPwr(Mvec,MLpar,z)
     [     0.  546.60...      0.        ] solLum
@@ -78,14 +66,9 @@ def DblPwr(Mvec, MLpar, z):
     b2 = MLpar['b2']
     b3 = MLpar['b3']
     Mstar = MLpar['Mstar']
-    Mcut_min = MLpar['Mcut_min']
-    Mcut_max = MLpar['Mcut_max']
     
     L = A * 10.**(b1*z) * (Mvec/(1.e8*u.Msun))**b2 * (1.+Mvec/Mstar)**b3
     L = L*u.Lsun
-    
-    L[Mvec < Mcut_min] = 0.*u.Lsun
-    L[Mvec > Mcut_max] = 0.*u.Lsun
     
     return L
     
@@ -115,8 +98,7 @@ def TonyLi(Mvec, MLpar, z):
     
     >>> Mvec = np.array([1.e8,1.e10,1.e16]) * u.Msun
     >>> MLpar = {'alpha':1.17, 'beta':0.21, 'dMF':1.0,\
-        'BehrooziFile':'sfr_release.dat', 'Mcut_min':1e9*u.Msun,\
-        'Mcut_max':1e15*u.Msun}
+        'BehrooziFile':'sfr_release.dat'}
     >>> z = 3.0
     >>> print TonyLi(Mvec,MLpar,z)
     [     0.  205.14...      0.        ] solLum
@@ -126,8 +108,6 @@ def TonyLi(Mvec, MLpar, z):
     beta = MLpar['beta']
     dMF = MLpar['dMF']
     BehrooziFile = MLpar['BehrooziFile']
-    Mcut_min = MLpar['Mcut_min']
-    Mcut_max = MLpar['Mcut_max']
     
     # Read and interpolate Behroozi SFR(M) data
     x = np.loadtxt(BehrooziFile)
@@ -139,7 +119,12 @@ def TonyLi(Mvec, MLpar, z):
     
     # Compute SFR(M) in Msun/yr
     logM = np.log10((Mvec.to(u.Msun)).value)
-    SFR = 10.**logSFR_interp(logM,z)
+    if np.array(z).size>1:
+        SFR = np.zeros(logM.size)
+        for ii in range(0,logM.size):
+            SFR[ii] = 10.**logSFR_interp(logM[ii],z[ii])
+    else:
+        SFR = 10.**logSFR_interp(logM,z)
     
     # Compute IR luminosity in Lsun
     LIR = SFR/(dMF*1e-10)
@@ -149,11 +134,7 @@ def TonyLi(Mvec, MLpar, z):
     
     # Compute LCO
     L = (4.9e-5*u.Lsun)*Lprime
-    
-    L[Mvec < Mcut_min] = 0.*u.Lsun
-    L[Mvec > Mcut_max] = 0.*u.Lsun
-    
-    
+
     return L
     
 def SilvaCII(Mvec, MLpar, z):
@@ -171,12 +152,9 @@ def SilvaCII(Mvec, MLpar, z):
     Parameters:
     a   a_LCII parameter in L(SFR), dimensionless
     b   b_LCII parameter in L(SFR)
-    Mcut_min  Minimum mass below which L=0 (in M_sun)
-    Mcut_max  Maximum mass above which L=0 (in M_sun)
     
     >>> Mvec = np.array([1.e8,1.e10,1.e16]) * u.Msun
-    >>> MLpar = {'a':0.8475, 'b':7.2203, 'Mcut_min':1e9*u.Msun, \
-                    'Mcut_max':1e15*u.Msun}
+    >>> MLpar = {'a':0.8475, 'b':7.2203}
     >>> z = 7.5
     >>> print SilvaCII(Mvec,MLpar,z)
     [     0.  4587712...      0.        ] solLum
@@ -184,8 +162,6 @@ def SilvaCII(Mvec, MLpar, z):
     
     aLCII = MLpar['a']
     bLCII = MLpar['b']
-    Mcut_min = MLpar['Mcut_min']
-    Mcut_max = MLpar['Mcut_max']
     
     # Interpolate SFR from Table 2 of Silva et al. 2015
     SFR = Silva_SFR(Mvec,z)
@@ -193,9 +169,67 @@ def SilvaCII(Mvec, MLpar, z):
     # LCII relation
     L = 10**(aLCII*np.log10(SFR/(1*u.Msun/u.yr))+bLCII)*u.Lsun
     
-    # Mmin, Mmax cuts
-    L[Mvec < Mcut_min] = 0.*u.Lsun
-    L[Mvec > Mcut_max] = 0.*u.Lsun
+    return L
+    
+def MHI_21cm(Mvec, MLpar, z):
+    '''
+    Obuljen et al. (2018) 21cm MHI(M) model, relates MHI to halo mass by
+    MHI = M0 * (M/Mmin)^alpha * exp(-Mmin/M)
+    
+    NOTE that the best fit values given by Obuljen et al. for M0 and Mmin are
+    in Msun/h units
+    
+    Parameters
+    M0      Overall normalization of MHI(M) (in Msun)
+    Mmin    Location of low-mass exponential cutoff (in Msun)
+    alpha   Slope at high-mass (dimensionless)
+    '''
+    
+    M0 = MLpar['M0']
+    Mmin = MLpar['Mmin']
+    alpha = MLpar['alpha']
+    
+    CLM = 6.215e-9*u.Lsun/u.Msun # Conversion factor btw MHI and LHI
+    
+    MHI = M0*(Mvec/Mmin)**alpha*np.exp(-Mmin/Mvec)
+    L = CLM*MHI
+    return L
+    
+def Constant_L(Mvec, MLpar, z):
+    '''
+    Model where every halo has a constant luminosity independent of mass.
+    Still has cutoffs at Mcut_min and Mcut_max.
+    
+    Parameters:
+    L0  Luminosity of every halo
+    '''
+    
+    L0 = MLpar['L0']
+    
+    return L0*np.ones(Mvec.size)
+    
+def MHI_21cm(Mvec, MLpar, z):
+    '''
+    Obuljen et al. (2018) 21cm MHI(M) model, relates MHI to halo mass by
+    MHI = M0 * (M/Mmin)^alpha * exp(-Mmin/M)
+    
+    NOTE that the best fit values given by Obuljen et al. for M0 and Mmin are
+    in Msun/h units
+    
+    Parameters
+    M0      Overall normalization of MHI(M) (in Msun)
+    Mmin    Location of low-mass exponential cutoff (in Msun)
+    alpha   Slope at high-mass (dimensionless)
+    '''
+    
+    M0 = MLpar['M0']
+    Mmin = MLpar['Mmin']
+    alpha = MLpar['alpha']
+    
+    CLM = 6.215e-9*u.Lsun/u.Msun # Conversion factor btw MHI and LHI
+    
+    MHI = M0*(Mvec/Mmin)**alpha*np.exp(-Mmin/Mvec)
+    L = CLM*MHI
     
     return L
     
@@ -218,7 +252,6 @@ def Silva_SFR(M,z):
     b = interp1d(z0,x[5,:])(z)
     
     return M0*(M/Ma)**a*(1+M/Mb)**b
-    
 
 if __name__ == "__main__":
     import doctest

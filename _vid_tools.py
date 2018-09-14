@@ -26,6 +26,35 @@ def binedge_to_binctr(binedge):
     
     return binctr
     
+def binctr_to_binedge_linear(binctr):
+    '''
+    Outputs edges of histogram bins given their edges.  Will invert
+    binedge_to_binctr if bins are linearly spaced.
+    '''
+    Nbin = binctr.size
+    dx = binctr[1]-binctr[0]
+    binedge =  np.append(binctr-dx/2.,binctr[Nbin-1]+dx/2.)
+    
+    if hasattr(binctr,'unit'):
+        binedge = binedge.value*binctr.unit
+    
+    return binedge
+    
+def binctr_to_binedge_log(binctr):
+    '''
+    Outputs edges of histogram bins given their edges.  Will invert
+    binedge_to_binctr if bins are logarithmically spaced.
+    '''
+    Nbin = binctr.size
+    r = binctr[1]/binctr[0]
+    binedge = np.append(2*binctr/(1+r),2*binctr[Nbin-1]/(1+1/r))
+    
+    if hasattr(binctr,'unit'):
+        binedge = binedge.value*binctr.unit
+    
+    return binedge
+    
+    
 def pdf_to_histogram(T,PT,Tedge,Nvox,Tmean_sub,PT_zero):
     '''
     Converts continuous probability distribution PT(T) to predicted histogram

@@ -7,7 +7,7 @@ import astropy.units as u
 import astropy.constants as cu
 from scipy.special import erf
 
-from lim import LineModel
+from line_model import LineModel
 from _utils import cached_property,get_default_params,check_params,check_model
 
 class LineObs(LineModel):
@@ -128,7 +128,7 @@ class LineObs(LineModel):
         '''
         Fraction of sky covered by a field
         '''
-        fsky = (self.Omega_field/(4*np.pi*u.rad)).decompose()
+        return (self.Omega_field/(4*np.pi*u.rad**2)).decompose()
     
     @cached_property
     def r0(self):
@@ -169,7 +169,7 @@ class LineObs(LineModel):
         Instrumental noise per voxel
         '''
         sig = self.Tsys/np.sqrt(self.Nfeeds*self.dnu*self.tpix)
-        return sig.to(u.uK)
+        return sig.to(self.Tmean.unit)
     
     @cached_property    
     def Pnoise(self):
@@ -256,7 +256,226 @@ class LineObs(LineModel):
         '''
         SNR_k = (self.Pk**2/self.sk**2).decompose()
         return np.sqrt(SNR_k[self.k>=self.kmin_field].sum())
+
+
+
+
+
+
+class LineObs_NEFD(LineModel):
+    '''
+    LineObs for an instrument that gives NEFD instead of Tsys
+    '''
+    def __init__(self, NEFD=155*u.mJy*u.s**(1./2), Nfeeds=20000, beam_FWHM=0.75*u.arcmin, 
+                    Delta_nu=20*u.GHz, dnu=0.4*u.GHz, tobs=4000*u.hr, 
+                    Omega_field=16*u.deg**2, Nfield=1,**line_kwargs):
+                    
+        # Initiate LineModel() parameters
+        #super(LineObs, self).__init__(**line_kwargs) # PROBLEM WITH autoreload
+        LineModel.__init__(self,**line_kwargs)
         
+        self._obs_params = locals()
+        self._obs_params.pop('self')
+        self._obs_params.pop('line_kwargs')
+        self._default_obs_params = get_default_params(LineObs_NEFD.__init__)
+        check_params(self._obs_params,self._default_obs_params)
+        
+        # Set instrument parameters
+        for key in self._obs_params:
+            setattr(self,key,self._obs_params[key])
+            
+        # Check if using correct class
+        if hasattr(self,'Tsys'):
+            raise ValueError(
+                "If setting sensitivity with Tsys, use LineObs_Tsys")
+            
+        
+        # Combine lim_params with obs_params
+        self._input_params.update(self._obs_params)
+        self._default_params.update(self._default_obs_params)
+        
+    
+    ##############
+    # Field Size #
+    ##############
+    
+    @cached_property
+    def Nch(self):
+        '''
+        Number of frequency channels, rounded if dnu does not divide evenly
+        into Delta_nu
+        '''
+        return np.round((self.Delta_nu/self.dnu).decompose())
+        
+    @cached_property
+    def beam_width(self):
+        '''
+        Beam width defined as 1-sigma width of Gaussian beam profile
+        '''
+        return self.beam_FWHM*0.4247
+        
+    @cached_property
+    def Nside(self):
+        '''
+        Number of pixels on a side of a map.  Pixel size is assumed to be one
+        beam FWHM on a side.  Rounded if FWHM does not divide evenly into
+        sqrt(Omega_field)
+        '''
+        theta_side = np.sqrt(self.Omega_field)
+        return np.round((theta_side/self.beam_width).decompose())
+        
+    @cached_property
+    def Npix(self):
+        '''
+        Number of pixels in a map
+        '''
+        return self.Nside**2
+        
+    @cached_property
+    def Nvox(self):
+        '''
+        Number of voxels in a map
+        '''
+        return self.Npix*self.Nch
+        
+    @cached_property
+    def fsky(self):
+        '''
+        Fraction of sky covered by a field
+        '''
+        fsky = (self.Omega_field/(4*np.pi*u.rad)).decompose()
+    
+    @cached_property
+    def r0(self):
+        '''
+        Comoving distance to central redshift of field
+        '''
+        return self.h.cosmo.comoving_distance(self.z)
+    
+    @cached_property    
+    def Vfield(self):
+        '''
+        Comoving volume of a single field
+        '''
+        return (self.r0**2*(self.Omega_field/(1.*u.rad**2))*cu.c*self.Delta_nu
+                *(1+self.z)**2/(self.H*self.nu)).to(u.Mpc**3)
+    
+    @cached_property            
+    def Vvox(self):
+        '''
+        Comoving volume of a single voxel
+        '''
+        return self.Vfield/self.Nvox
+        
+    ##########################
+    # Instrument noise power #
+    ##########################
+            
+    @cached_property
+    def tpix(self):
+        '''
+        Time spent observing each pixel
+        '''
+        return self.tobs*self.Nfeeds/self.Npix
+    
+    @cached_property
+    def sigma_N(self):
+        '''
+        Instrumental noise per voxel (see Serra+ 2016)
+        '''
+        dOmega_beam = 2*np.pi*self.beam_width**2
+        print dOmega_beam
+        sig = self.NEFD/dOmega_beam
+        return sig.to(self.Tmean.unit*u.s**(1./2))
+        
+    @cached_property    
+    def Pnoise(self):
+        '''
+        Noise power spectrum amplitude
+        '''
+        return self.sigma_N**2*self.Vvox/self.tpix
+        
+    @cached_property
+    def sigma_par(self):
+        '''
+        High-resolution cutoff for line-of-sight modes
+        '''
+        return (cu.c*self.dnu*(1+self.z)/(self.H*self.nuObs)).to(u.Mpc)
+    
+    @cached_property
+    def sigma_perp(self):
+        '''
+        High-resolution cutoff for transverse modes
+        '''
+        return (self.r0*(self.beam_width/(1*u.rad))).to(u.Mpc)
+        
+    @cached_property
+    def Wk(self):
+        '''
+        Resolution cutoff in power spectrum
+        '''
+        mu = np.linspace(0,1,1000)
+        ki,mui = np.meshgrid(self.k,mu)
+        exparg1 = -(self.k**2*self.sigma_perp**2).decompose()
+        exparg2 = -((ki**2*(self.sigma_par**2-self.sigma_perp**2)*mui**2)
+                    .decompose())
+        return np.exp(exparg1)*np.trapz(np.exp(exparg2),mu,axis=0)
+        
+    @cached_property
+    def Nmodes(self):
+        '''
+        Number of modes between k and k+dk
+        '''
+        return self.k**2.*self.dk*self.Vfield*self.Nfield/(4*np.pi**2)
+        
+    @cached_property
+    def sk_CV(self):
+        '''
+        Error at k due to sample variance
+        '''
+        return self.Pk/(np.sqrt(self.Nmodes)*self.Wk)
+        
+    @cached_property
+    def sk_N(self):
+        '''
+        Error at k due to instrumental noise
+        '''
+        return ((self.Pnoise/(np.sqrt(self.Nmodes)*self.Wk))
+                    .to(self.sk_CV.unit))
+        
+    @cached_property
+    def sk(self):
+        '''
+        Total error at k
+        '''
+        return self.sk_CV+self.sk_N
+        
+    @cached_property
+    def kmin_field(self):
+        '''
+        Minimum k accessible in a single field, set by the minimum side length
+        '''
+        # Line-of-sight side length
+        z_min = self.nu/(self.nuObs+self.Delta_nu/2.)-1
+        z_max = self.nu/(self.nuObs-self.Delta_nu/2.)-1
+        dr_los = (self.h.cosmo.comoving_distance(z_max)-
+                    self.h.cosmo.comoving_distance(z_min))
+        kmin_los = 2*np.pi/dr_los
+        # Transverse side length
+        dr_sky = (np.sqrt((self.Omega_field/(1*u.rad**2)).decompose())
+                    *self.h.cosmo.angular_diameter_distance(self.z))
+        kmin_sky = 2*np.pi/dr_sky
+        return min([kmin_los,kmin_sky])
+        
+    @cached_property
+    def SNR(self):
+        '''
+        Signal to noise ratio for given model and experiment
+        '''
+        SNR_k = (self.Pk**2/self.sk**2).decompose()
+        return np.sqrt(SNR_k[self.k>=self.kmin_field].sum())
+
+
 ############
 # Doctests #
 ############

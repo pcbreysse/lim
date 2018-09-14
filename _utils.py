@@ -77,7 +77,11 @@ def check_params(input_params, default_params):
                     pass
                 else:
                     raise(TypeError(
-                      "Parameter cosmo_model must be a str or FlatLambdaCDM")) 
+                      "Parameter cosmo_model must be a str or FlatLambdaCDM"))
+            elif key=='scatter_seed':
+                if type(input_value)==int or type(input_value)==float:
+                    pass
+                
             elif type(default_value)==Quantity:
                 raise TypeError("Parameter "+key+
                         " must be an astropy quantity")
