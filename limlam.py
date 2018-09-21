@@ -58,9 +58,10 @@ class LimLam(LineObs):
             setattr(self,key,self._sim_params[key])
          
         # Sims currently only available for ML models
+        '''
         if self.model_type!='ML':
             raise ValueError('Limlam sims only available for ML models')
-        
+        '''
         # Combine sim_params with obs_params
         self._input_params.update(self._sim_params)
         self._default_params.update(self._default_sim_params)
@@ -174,9 +175,16 @@ class LimLam(LineObs):
         The original github version of Mhalo_to_Lco has been modified to use
         the ML models from mass_luminosity.py
         '''
-        L =  llm.Mhalo_to_Lline(self.halos,self.model_name,self.model_par,
-                sigma_scatter=self.sigma_scatter,
-                scatter_seed=self.scatter_seed)
+        if self.model_type=='ML':
+            L =  llm.Mhalo_to_Lline(self.halos,self.model_type,
+                   self.model_name,self.model_par,
+                   sigma_scatter=self.sigma_scatter,
+                   scatter_seed=self.scatter_seed)
+        elif self.model_type=='LF':
+            L =  llm.Mhalo_to_Lline(self.halos,self.model_type,
+                   self.model_name,self.model_par,
+                   sigma_scatter=self.sigma_scatter,
+                   scatter_seed=self.scatter_seed,L=self.L,dndL=self.dndL)
                 
         self.halos.Lco = L.to(u.Lsun).value
         return L
@@ -251,6 +259,13 @@ class LimLam(LineObs):
         return dNdM/self.Vfield
         
     @cached_property
+    def nbar_sim(self):
+        '''
+        Mean number density of simulated halos
+        '''
+        return self.M_halos.size/self.Vfield
+        
+    @cached_property
     def dndL_sim(self):
         '''
         Simulated halo luminosity function
@@ -258,7 +273,7 @@ class LimLam(LineObs):
         Ledge = vt.binctr_to_binedge_log(self.L)
         dL = np.diff(Ledge)
         dNdL = np.histogram(self.L_halos,bins=Ledge)[0]/dL
-        return dNdL/self.Vfield
+        return dNdL#/self.Vfield
         
     @cached_property
     def Tmean_sim(self):

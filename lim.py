@@ -6,7 +6,6 @@ import numpy as np
 import params as params_file
 from line_model import LineModel
 from line_obs import LineObs
-from vid import VID
 from limlam import LimLam, set_sim_cosmo
 from _utils import get_default_params
 
@@ -36,15 +35,15 @@ def lim(model_params='default_par',doObs=True,doSim=False,match_sim_cosmo=True):
     >>> m.bavg
     <Quantity 1.983...>
     >>> m.Tmean
-    <Quantity 1.769... uK>
+    <Quantity 1.373... uK>
     >>> m.Pshot
-    <Quantity 835.9... Mpc3 uK2>
+    <Quantity 828.8... Mpc3 uK2>
     >>> m.Nvox
     <Quantity 1387152.0>
     >>> m.sigma_N
     <Quantity 25.99... uK>
     >>> m.SNR
-    <Quantity 17.81...>
+    <Quantity 13.7...>
     >>> m1 = lim(model_params='TonyLi_PhI',doSim=True)
     Input cosmological model does not match simulations
     Setting analytic cosmology to match simulation
@@ -71,13 +70,13 @@ def lim(model_params='default_par',doObs=True,doSim=False,match_sim_cosmo=True):
             m = LimLam(**par1)
             if match_sim_cosmo and m._cosmo_flag:
                 set_sim_cosmo(m)
-                print 'Setting analytic cosmology to match simulation'
+                print('Setting analytic cosmology to match simulation')
             return m
         else:
             return LineObs(**par1)
     else:
         if doSim:
-            print 'Simulations require doObs=True'
+            print('Simulations require doObs=True')
         return LineModel(**par1)
         
 def remove_invalid_params(params,doObs,doSim):

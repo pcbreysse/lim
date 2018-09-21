@@ -156,15 +156,6 @@ class LineModel(object):
                  nk = 100,
                  sigma_scatter=0.,
                  fduty=1.,
-                 Tmin_VID=1.0e-2*u.uK,
-                 Tmax_VID=1000.*u.uK,
-                 nT=10**5,
-                 do_fast_VID=True,
-                 sigma_G=1.6,
-                 Ngal_max=100,
-                 Nbin_hist=101,
-                 subtract_VID_mean=False,
-                 linear_VID_bin=False,
                  do_onehalo=False,
                  do_Jysr=False):
         
@@ -388,7 +379,8 @@ class LineModel(object):
         the underlying cosmology
         '''
         return MassFunction(cosmo_model=self.cosmo_model,Mmin=hmf_logMmin,
-                                Mmax=hmf_logMmax,dlog10m=hmf_dlog10m,z=self.z)
+                                Mmax=hmf_logMmax,dlog10m=hmf_dlog10m,z=self.z,
+                                hmf_model=self.hmf_model)
         
     @cached_property
     def dndM(self):
@@ -451,7 +443,6 @@ class LineModel(object):
         a_c =0.1*np.log10((Mi.to(u.Msun)).value)-0.9
         a_c[a_c<0.1] = 0.1
         con = (4.1/(a_c*(1.+self.z))).value
-        print con
         f = np.log(1.+con)-con/(1.+con)
         Delta = 200
         rhobar = (self.h.mean_density0*self.Msunh/self.Mpch**3).to(u.Msun/u.Mpc**3)
@@ -555,7 +546,7 @@ class LineModel(object):
         '''
         if self.do_onehalo:
             if self.model_type=='LF':
-                print "One halo term only available for ML models"
+                print("One halo term only available for ML models")
                 wt = self.Tmean*self.bavg
             else:
                 Mass_Dep = self.LofM*self.bofM*self.dndM
@@ -617,250 +608,6 @@ class LineModel(object):
         Full line power spectrum including both clustering and shot noise
         '''
         return self.Pk_clust+self.Pk_shot
-    
-    #############################################
-    #############################################
-    ### Voxel Intensity Distribution Functions ##
-    #############################################
-    #############################################
-    
-    ##################
-    # Intensity bins #
-    ##################
-    @cached_property
-    def Tedge(self):
-        '''
-        Edges of intensity bins. Uses linearly spaced bins if do_fast_VID=True,
-        logarithmically spaced if do_fast=False
-        '''
-        if self.do_fast_VID:
-            Te = np.linspace(self.Tmin_VID,self.Tmax_VID,self.nT+1)
-        else:
-            Te = ulogspace(self.Tmin_VID,self.Tmax,self.nT+1)
-            
-        if self.subtract_VID_mean:
-            return Te-self.Tmean
-        else:
-            return Te
-            
-        
-    @cached_property
-    def T(self):
-        '''
-        Centers of intensity bins
-        '''
-        return vt.binedge_to_binctr(self.Tedge)
-        
-    @cached_property
-    def dT(self):
-        '''
-        Widths of intensity bins
-        '''
-        return np.diff(self.Tedge)
-        
-    ######################################### 
-    # Number count probability distribution #
-    #########################################
-    @cached_property
-    def Nbar(self):
-        '''
-        Mean number of galaxies per voxel
-        '''
-        return self.nbar*self.Vvox
-        
-    @cached_property
-    def Ngal(self):
-        '''
-        Vector of galaxy number counts, from 0 to self.Ngal_max
-        '''
-        return np.array(range(0,self.Ngal_max+1))
-        
-    
-    @cached_property
-    def PofN(self):
-        '''
-        Probability of a voxel containing N galaxies.  Uses the lognormal +
-        Poisson model from Breysse et al. 2017
-        '''
-        # PDF of galaxy density field mu
-        logMuMin = np.log10(self.Nbar)-20*self.sigma_G
-        logMuMax = np.log10(self.Nbar)+5*self.sigma_G
-        mu = np.logspace(logMuMin,logMuMax,10**4.)
-        mu2,Ngal2 = np.meshgrid(mu,self.Ngal) # Keep arrays for fast integrals
-        Pln = vt.lognormal_Pmu(mu2,self.Nbar,self.sigma_G)
-
-        P_poiss = poisson.pmf(Ngal2,mu2)
-                
-        return np.trapz(P_poiss*Pln,mu)
-        
-    ###################
-    # Intensity PDF's #
-    ###################
-    @cached_property
-    def XLT(self):
-        '''
-        Constant relating total luminosity in a voxel to its observed
-        intensity.  Equal to CLT/Vvox
-        '''
-        return self.CLT/self.Vvox
-        
-    
-    @cached_property
-    def P1(self):
-        '''
-        Probability of observing a given intensity in a voxel which contains
-        exactly one emitter
-        '''
-        # Compute dndL at L's equivalent to T bins
-        dndL_T = lambda L: getattr(lf,self.model_name)(L, self.model_par)
-        if self.subtract_VID_mean:
-            return dndL_T((self.T+self.Tmean)/self.XLT)/(self.nbar*self.XLT)
-        else:
-            return dndL_T(self.T/self.XLT)/(self.nbar*self.XLT)
-        
-    @cached_property
-    def PT(self):
-        '''
-        Probability of intensity between T and T+dT in a given voxel.  Uses
-        fft's and linearly spaced T points if do_fast_VID=1.  Uses brute-force
-        convolutions and logarithmically spaced T points if do_fast_VID=0
-        
-        Does NOT include the delta function at T=0 from voxels containing zero
-        sources.  That is handled by self.PT_zero, which is later taken into
-        account when computing B_i. This means that PT will not integrate to
-        unity, but rather 1-PT_zero.
-        '''
-        if self.do_fast_VID:
-            fP1 = np.fft.fft(self.P1)*self.dT
-            # FT of PDF should be dimensionless, but the fft function removes
-            # the unit from P1
-            fP1 = ((fP1*self.P1.unit).decompose()).value 
-            
-            fPT_N = np.zeros((self.Ngal_max,self.T.size),dtype=complex)
-            
-            for ii in range(1,self.Ngal_max):
-                fPT_N[ii,:] = fP1**(ii)*self.PofN[ii]
-            
-            fPT = fPT_N.sum(axis=0)
-            
-            # Errors in fft's leave a small imaginary part, remove for output
-            return (np.fft.ifft(fPT)/self.dT).real
-            
-        else:
-            P_N = np.zeros([self.Ngal_max,self.T.size])*self.P1.unit
-            P_N[0,:] = self.P1
-            
-            for ii in range(1,self.Ngal_max):
-                PN[ii,:] = vt.conv_parallel(self.T,P_N[ii-1],
-                                            self.T,self.P1,self.T)
-            
-            PT = np.zeros(self.T.size)
-
-            for ii in range(0,self.Ngal_max):
-                PT = PT+PN[ii,:]*self.PofN[ii+1]
-                
-            return PT
-            
-    @cached_property
-    def PT_zero(self):
-        '''
-        P(T) contains a delta function at T=0 from voxels which contain zero 
-        sources.  Delta functions are difficult to include naturally in
-        arrays, so we model it separately here.  This quantity will need to be
-        taken into account for any integrals over P(T) which cover T=0. (See
-        the self.normalization function below)
-        '''
-        return self.PofN[0]
-        
-    @cached_property
-    def normalization(self):
-        '''
-        Outputs the value of integral(P(T)dT) including the spike at T=0.
-        Used as a numerical check, should come out quite close to 1.0
-        '''
-        return np.trapz(self.PT,self.T)+self.PT_zero
-        
-    ########################
-    # Predicted histograms #
-    ########################
-                                            
-    @cached_property
-    def Tedge_i(self):
-        '''
-        Edges of histogram bins
-        '''
-        if self.linear_VID_bin:
-            Te = np.linspace(-self.Tmax_VID,self.Tmax_VID,self.Nbin_hist+1)
-        else:
-            Te = ulogspace(self.Tmin_VID,self.Tmax_VID,self.Nbin_hist+1)
-        
-        if self.subtract_VID_mean:
-            return Te-self.Tmean
-        else:
-            return Te
-        
-    @cached_property
-    def Ti(self):
-        '''
-        Centers of histogram bins
-        '''
-        return vt.binedge_to_binctr(self.Tedge_i)
-        
-    @cached_property
-    def Bi(self):
-        '''
-        Predicted number of sources in each bin
-        '''
-        if self.subtract_VID_mean:
-            return vt.pdf_to_histogram(self.T,self.PT,self.Tedge_i,self.Nvox,
-                                        self.Tmean,self.PT_zero)
-        else:
-            return vt.pdf_to_histogram(self.T,self.PT,self.Tedge_i,self.Nvox,
-                                        0.*self.Tmean.unit,self.PT_zero)
-                                        
-    ######################################
-    # Draw galaxies to test convolutions #    
-    ######################################
-    
-    def DrawTest(self,Ndraw):
-        '''
-        Function which draws sample galaxy populations from input number count
-        and luminosity distributions.  Outputs Ndraw histograms which can be
-        compared to self.Bi
-        '''
-        h = np.zeros([Ndraw,self.Ti.size])
-        
-        # PofN must be exactly normalized
-        PofN = self.PofN/self.PofN.sum()
-        
-        for ii in range(0,Ndraw):
-            # Draw number of galaxies in each voxel
-            N = np.random.choice(self.Ngal,p=PofN,size=self.Nvox.astype(int))
-            
-            # Draw galaxy luminosities
-            Ledge = np.logspace(0,10,10**4+1)*u.Lsun
-            Lgal = vt.binedge_to_binctr(Ledge)
-            dL = np.diff(Ledge)
-            PL = getattr(lf,self.model_name)(Lgal,self.model_par)*dL
-            PL = PL/PL.sum() # Must be exactly normalized
-            
-            T = np.zeros(self.Nvox.astype(int))*u.uK
-            
-            for jj in range(0,self.Nvox):
-                if N[jj]==0:
-                    L = 0.*u.Lsun
-                else:
-                    L = np.random.choice(Lgal,p=PL,size=N[jj])*u.Lsun
-                    
-                T[jj] = self.XLT*L.sum()
-            
-            h[ii,:] = np.histogram(T,bins=self.Tedge_i)[0]
-        
-        if Ndraw==1:
-            # For simplicity of later use, returns a 1-D array if Ndraw=1
-            return h[0,:]
-        else:
-            return h
         
     ########################################################################
     # Method for updating input parameters and resetting cached properties #
