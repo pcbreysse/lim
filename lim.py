@@ -6,7 +6,7 @@ import numpy as np
 import params as params_file
 from line_model import LineModel
 from line_obs import LineObs
-from limlam import LimLam, set_sim_cosmo
+#from limlam import LimLam, set_sim_cosmo
 from _utils import get_default_params
 
 
