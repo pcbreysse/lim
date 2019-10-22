@@ -4,17 +4,18 @@ lim is a python application designed to analytically compute various statistics 
 
 ### Prerequisites
 
-lim requires several packages which should be familiar to astronomers working with python, including numpy, scipy, and astropy.  It also makes substantial use of Steven Murray's [hmf](https://www.github.com/steven-murray/hmf) package, which can be installed along with its dependencies with the command
+lim requires several packages which should be familiar to astronomers working with python, including numpy, scipy, and astropy.  It also makes substantial use of Francisco Villaescusa-Navarro's [pylians](https://github.com/franciscovillaescusa/Pylians) package, which can be download from github and installed along with its dependencies with the commands
 
 ```
-pip install hmf
+cd library
+python setup.py build
 ```
 
 Astropy units are used throughout this code to avoid unit conversion errors. To use the output of lim in any code which does not accept astropy units, simply replace output x with x.value.
 
 Using the simulation functionality requires peak-patch catalogs.  One example catalog is included here, more can be obtained from George Stein (github.com/georgestein)
 
-Finally, lim uses the hmf matter power spectrum, which uses the python camb wrapper if available, and the Eisenstein-Hu transfer function if not.
+Finally, lim uses the python camb wrapper to compute all needed cosmological quantities. 
 
 ### Quickstart
 
@@ -39,7 +40,7 @@ from params import TonyLi_PhI
 m = lim(model_params = TonyLi_PhI)
 ```
 
-All modules in lim use an update() method similar to that used in hmf, which allows parameter values to be changed after creating the model.  Most outputs are created as @cached_properties, which will update themselves using the new value after update() is called.  For example, to change the observing frequency of a survey you could run
+All modules in lim use an update(), which allows parameter values to be changed after creating the model.  Most outputs are created as @cached_properties, which will update themselves using the new value after update() is called.  For example, to change the observing frequency of a survey you could run
 
 ```
 m = lim()
@@ -47,9 +48,13 @@ m.update(nuObs=15*u.GHz)
 
 ```
 
-The update() method is somewhat optimized, in that it will only rerun hmf's computation of the power spectrum and mass function if required.  This speeds up update()'s which only change the line emission physics without altering the cosmology.
+The update() method is somewhat optimized, in that it will only rerun functions if required.  This speeds up update()'s which only change the line emission physics without altering the cosmology.
 
 There is also a reset() method which will reset all input parameters back to the values they had when lim() was originally called.
+
+### Examples
+
+An ipython notebook fully commented is provided as an example. Following this notebook (LIM_PkFisher.ipynb) will get you familiar with the code (especially with the computation of the power spectrum multipoles and the corresponding covariance), and will allow you to reproduce the results appearing on the papers: arXiv:1907.10065 and arXiv:1907.10067. These papers (and the example), focus on the use of the multipoles of the LIM power spectrum to extract robust and optimal cosmological information, marginalizing over astrophysical uncertainties. 
 
 ### Modules
 
@@ -75,10 +80,15 @@ import camb
 gives an error, hmf will use the EH transfer function and the doctests may fail.
 
 
+## Usage
+
+When used, please refer to the github page and cite arXiv:1907.10067
+
 
 ## Authors
 
 * **Patrick C. Breysse**
+* **José Luis Bernal**
 
 ## License
 
