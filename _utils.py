@@ -9,10 +9,13 @@ import astropy.units as u
 
 import luminosity_functions as lf
 import mass_luminosity as ml
+import bias_fitting_functions as bm
 
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
+
+from scipy.interpolate import interp1d
 
 class cached_property(object):
     """
@@ -105,9 +108,9 @@ def check_params(input_params, default_params):
                                 
         # Special requirements for certain parameters
         elif (key=='model_type' and not 
-                (input_value=='ML' or input_value=='LF')):
+                (input_value=='ML' or input_value=='LF' or input_value=='TOY')):
             # model_type can only be ML or LF
-            raise ValueError("model_type must be either 'ML' or 'LF'")
+            raise ValueError("model_type must be either 'ML' or 'LF' ot 'TOY' ")
             
             
 def check_model(model_type,model_name):
@@ -130,6 +133,14 @@ def check_model(model_type,model_name):
             raise ValueError(model_name+
                     " not found in luminosity_functions.py")
             
+def check_bias_model(bias_name):
+    '''
+    Check if model given by model_name exists in the given model_type
+    '''
+    if not hasattr(bm,bias_name):
+        raise ValueError(bias_name+
+                    " not found in bias_fitting_functions.py")
+
                                 
 def ulogspace(xmin,xmax,nx):
     '''
@@ -141,3 +152,28 @@ def ulogspace(xmin,xmax,nx):
     '''
 
     return np.logspace(np.log10(xmin.value),np.log10(xmax.value),nx)*xmin.unit
+
+def ulinspace(xmin,xmax,nx):
+    '''
+    Computes linearly-spaced numpy array between xmin and xmax with nx
+    points.  This function allows the limits to have astropy units. 
+    The output array will be a quantity with the same units as xmin and xmax
+    '''
+
+    return np.linspace(xmin.value,xmax.value,nx)*xmin.unit
+
+
+def log_interp1d(xx, yy, kind='linear',bounds_error=False,fill_value=0.):
+    try:
+        logx = np.log10(xx.value)
+    except:
+        logx = np.log10(xx)
+    try:
+        logy = np.log10(yy.value)
+    except:
+        logy = np.log10(yy)
+    lin_interp = interp1d(logx, logy, kind=kind,bounds_error=bounds_error,fill_value=fill_value)
+    
+    log_interp = lambda zz: np.power(10.0, lin_interp(np.log10(zz)))
+
+    return log_interp
