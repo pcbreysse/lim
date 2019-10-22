@@ -6,21 +6,22 @@ import numpy as np
 import inspect
 import astropy.units as u
 import astropy.constants as cu
+
 from scipy.interpolate import interp1d
 from scipy.special import sici
+from scipy.special import legendre
 
 
-from hmf import MassFunction
+import mass_function_library as MFL
+import camb
 
-from _utils import cached_property,get_default_params,check_params,ulogspace
+from _utils import cached_property,get_default_params,check_params,ulogspace,ulinspace
 from _utils import check_model
+from _utils import check_bias_model
+from _utils import log_interp1d
 import luminosity_functions as lf
 import mass_luminosity as ml
-
-# hmf parameters. Need wide mass range with enough points for interpolation
-hmf_logMmin = 7.
-hmf_logMmax = 16.
-hmf_dlog10m = 0.05
+import bias_fitting_functions as bm
 
 class LineModel(object):
     '''
@@ -35,8 +36,7 @@ class LineModel(object):
     and a prescription for assigning line luminosities.  These luminosities
     can either be drawn directly from a luminosity function, or assigned
     following a mass-luminosity relation.  In the latter case, abuundances are
-    assigned following a mass function computed with Steven Murray's hmf
-    package.
+    assigned following a mass function computed with pylians.
     
     Most methods in this class are given as @cached_properties, which means
     they are computed once when the method is called, then the outputs are
@@ -57,9 +57,7 @@ class LineModel(object):
     Defaults to the model from Breysse et al. (2017)
     
     INPUT PARAMETERS:
-    cosmo_model:    Either an astropy FlatLambdaCDM object or the string for
-                    one of the default astropy cosmologies.  Defines
-                    cosmological parameters. (Default = 'Planck15')
+    cosmo_input:    Dictionary to read and feed to camb
 
     model_type:     Either 'LF' for a luminosity function model or 'ML' for a
                     mass-luminosity model.  Any other value will raise an
@@ -73,6 +71,13 @@ class LineModel(object):
                     
     model_par:      Dictionary containing the parameters of the chosen model
                     (Default = Parameters of Breysse et al. 2017 CO model)
+                    
+    hmf_model:      Fitting function for the halo model using Pylians. 
+                    To choose among 'ST, 'Tinker', 'Tinker10'
+                    'Crocce', 'Jenkins', 'Warren', 'Watson', 'Angulo'
+                    (Default: 'ST').
+                    
+    bias_model:     Fitting function for the bias model.
                     
     nu:             Rest frame emission frequency of target line
                     (Default = 115 GHz, i.e. CO(1-0))
@@ -104,6 +109,9 @@ class LineModel(object):
     
     nk:             Number of wavenumber points (Default = 100)
     
+    k_kind:         Whether you want k vector to be binned in linear or
+                    log space (options: 'linear','log'; Default:'log')
+    
     sigma_scatter:  Width of log-scatter in mass-luminosity relation, defined
                     as the width of a Gaussian distribution in log10(L) which
                     preserves the overall mean luminosity.  See Li et al.
@@ -117,6 +125,21 @@ class LineModel(object):
                     
     do_Jysr:        Bool, if True quantities are output in Jy/sr units rather
                     than brightness temperature (Default = False)
+                    
+    do_RSD:         Bool, if True power spectrum includes RSD (Default:False)
+    
+    sigma_NL:       Scale of Nonlinearities (Default: 7 Mpc)
+    
+    nmu:            number of mu bins
+    
+    nonlinear_pm:   Bool, if True, non linear power spectrum computed
+                    (Default: False)
+                    If True, it will take longer
+    
+    FoG_damp:       damping term for Fingers of God (Default:'Lorentzian'
+    
+    smooth:         smoothed power spectrum, convoluted with beam/channel
+                    (Default: False)
     
     DOCTESTS:
     >>> m = LineModel()
@@ -137,27 +160,45 @@ class LineModel(object):
     '''
     
     def __init__(self,
-                 cosmo_model='Planck15',
+                 cosmo_input=dict(f_NL=0,H0=67.0,cosmomc_theta=None,ombh2=0.022, omch2=0.12, 
+                               omk=0.0, neutrino_hierarchy='degenerate', 
+                               num_massive_neutrinos=1, mnu=0.06, nnu=3.046, 
+                               YHe=None, meffsterile=0.0, standard_neutrino_neff=3.046, 
+                               TCMB=2.7255, tau=None, deltazrei=None, bbn_predictor=None, 
+                               theta_H0_range=[10, 100],w=-1.0, wa=0., cs2=1.0, 
+                               dark_energy_model='ppf',As=2e-09, ns=0.96, nrun=0, 
+                               nrunrun=0.0, r=0.0, nt=None, ntrun=0.0, 
+                               pivot_scalar=0.05, pivot_tensor=0.05,
+                               parameterization=2,halofit_version='mead'),
                  model_type='LF',
                  model_name='SchCut', 
-                 model_par={'phistar':8.7e-11*u.Lsun**-1*u.Mpc**-3,
-                 'Lstar':2.1e6*u.Lsun,'alpha':-1.87,'Lmin':500*u.Lsun},
+                 model_par={'phistar':9.6e-11*u.Lsun**-1*u.Mpc**-3,
+                 'Lstar':2.1e6*u.Lsun,'alpha':-1.87,'Lmin':5000*u.Lsun},
+                 hmf_model='ST',
+                 bias_model='ST99',
+                 bias_par={}, #Otherwise, write a dict with the corresponding values
                  nu=115*u.GHz,
                  nuObs=30*u.GHz,
                  Mmin=1e9*u.Msun,
                  Mmax=1e15*u.Msun,
                  nM=5000,
-                 hmf_model='Tinker08',
                  Lmin=100*u.Lsun,
                  Lmax=1e8*u.Lsun,
                  nL=5000,
                  kmin = 1e-2*u.Mpc**-1,
                  kmax = 10.*u.Mpc**-1,
                  nk = 100,
+                 k_kind = 'log',
                  sigma_scatter=0.,
                  fduty=1.,
                  do_onehalo=False,
-                 do_Jysr=False):
+                 do_Jysr=False,
+                 do_RSD=True,
+                 sigma_NL=7*u.Mpc,
+                 nmu=1000,
+                 nonlinear_pm=False,
+                 FoG_damp='Lorentzian',
+                 smooth=False):
         
 
         # Get list of input values to check type and units
@@ -172,6 +213,7 @@ class LineModel(object):
         # Set all given parameters
         for key in self._lim_params:
             setattr(self,key,self._lim_params[key])
+
             
         # Create overall lists of parameters (Only used if using one of 
         # lim's subclasses
@@ -185,6 +227,66 @@ class LineModel(object):
         
         # Check if model_name is valid
         check_model(self.model_type,self.model_name)
+        check_bias_model(self.bias_model)
+
+        #Set cosmology and call camb
+        self.cosmo_input = self._default_params['cosmo_input']
+        for key in cosmo_input:
+            self.cosmo_input[key] = cosmo_input[key]
+
+        self.camb_pars = camb.set_params(H0=self.cosmo_input['H0'], cosmomc_theta=self.cosmo_input['cosmomc_theta'],
+             ombh2=self.cosmo_input['ombh2'], omch2=self.cosmo_input['omch2'], omk=self.cosmo_input['omk'],
+             neutrino_hierarchy=self.cosmo_input['neutrino_hierarchy'], 
+             num_massive_neutrinos=self.cosmo_input['num_massive_neutrinos'],
+             mnu=self.cosmo_input['mnu'], nnu=self.cosmo_input['nnu'], YHe=self.cosmo_input['YHe'], 
+             meffsterile=self.cosmo_input['meffsterile'], 
+             standard_neutrino_neff=self.cosmo_input['standard_neutrino_neff'], 
+             TCMB=self.cosmo_input['TCMB'], tau=self.cosmo_input['tau'], 
+             deltazrei=self.cosmo_input['deltazrei'], 
+             bbn_predictor=self.cosmo_input['bbn_predictor'], 
+             theta_H0_range=self.cosmo_input['theta_H0_range'],
+             w=self.cosmo_input['w'], cs2=self.cosmo_input['cs2'], 
+             dark_energy_model=self.cosmo_input['dark_energy_model'],
+             As=self.cosmo_input['As'], ns=self.cosmo_input['ns'], 
+             nrun=self.cosmo_input['nrun'], nrunrun=self.cosmo_input['nrunrun'], 
+             r=self.cosmo_input['r'], nt=self.cosmo_input['nt'], ntrun=self.cosmo_input['ntrun'], 
+             pivot_scalar=self.cosmo_input['pivot_scalar'], 
+             pivot_tensor=self.cosmo_input['pivot_tensor'],
+             parameterization=self.cosmo_input['parameterization'],
+             halofit_version=self.cosmo_input['halofit_version'])
+             
+        self.camb_pars.WantTransfer=True
+        
+        
+    #################
+    # Get cosmology #
+    #################
+    
+    @cached_property
+    def cosmo(self):
+        self.camb_pars.set_matter_power(redshifts=[self.z,0], 
+                                        kmax=self.kmax.value)
+        self.camb_pars.NonLinear = camb.model.NonLinear_both
+        return camb.get_results(self.camb_pars)
+   
+    @cached_property
+    def transfer(self):
+       return self.cosmo.get_matter_transfer_data()
+       
+    @cached_property
+    def f_NL(self):
+        return self.cosmo_input['f_NL']
+        
+    @cached_property
+    def Alcock_Packynski_params(self):
+        '''
+        Returns the quantities needed for the rescaling for Alcock-Paczyinski
+           Da/rs, H*rs, DV/rs
+        '''
+        BAO_pars = self.cosmo.get_BAO([self.z],self.camb_pars)
+        #This is rs/DV, H, DA, F_AP
+        rs = self.cosmo.get_derived_params()['rdrag']
+        return BAO_pars[0,2]/rs,BAO_pars[0,1]*rs,BAO_pars[0,0]**-1.
     
     ####################
     # Define 1/h units #
@@ -195,7 +297,7 @@ class LineModel(object):
         Normalized hubble parameter (H0.value/100). Used for converting to
         1/h units.
         '''
-        return (self.h.cosmo.H0.to(u.km/(u.Mpc*u.s))).value/100
+        return self.camb_pars.H0/100.
     
     @cached_property
     def Mpch(self):
@@ -219,14 +321,14 @@ class LineModel(object):
         '''
         Emission redshift of target line
         '''
-        return self.nu/self.nuObs-1.
+        return (self.nu/self.nuObs-1.).value
     
     @cached_property
     def H(self):
         '''
         Hubble parameter at target redshift
         '''
-        return self.h.cosmo.H(self.z)
+        return self.cosmo.hubble_parameter(self.z)*(u.km/u.Mpc/u.s)
         
     @cached_property
     def CLT(self):
@@ -239,7 +341,7 @@ class LineModel(object):
         else:
             x = cu.c**3*(1+self.z)**2/(8*np.pi*cu.k_B*self.nu**3*self.H)
             return x.to(u.uK*u.Mpc**3/u.Lsun)
-        
+    
     #########################################
     # Masses, luminosities, and wavenumbers #
     #########################################
@@ -248,14 +350,14 @@ class LineModel(object):
         '''
         List of masses for computing mass functions and related quantities
         '''
-        # Make sure masses fall within bounds defined for hmf
-        logMmin_h = np.log10((self.Mmin.to(self.Msunh)).value)
-        logMmax_h = np.log10((self.Mmax.to(self.Msunh)).value)
+        # ~ # Make sure masses fall within bounds defined for hmf
+        # ~ logMmin_h = np.log10((self.Mmin.to(self.Msunh)).value)
+        # ~ logMmax_h = np.log10((self.Mmax.to(self.Msunh)).value)
         
-        if logMmin_h<hmf_logMmin:
-            self.h.update(Mmin=logMmin_h/2.)
-        elif logMmax_h>hmf_logMmax:
-            self.h.update(Mmax=logMmax_h*2.)
+        # ~ if logMmin_h<hmf_logMmin:
+            # ~ self.h.update(Mmin=logMmin_h/2.)
+        # ~ elif logMmax_h>hmf_logMmax:
+            # ~ self.h.update(Mmax=logMmax_h*2.)
         
         return ulogspace(self.Mmin,self.Mmax,self.nM)
     
@@ -272,7 +374,13 @@ class LineModel(object):
         '''
         Wavenumber bin edges
         '''
-        return ulogspace(self.kmin,self.kmax,self.nk+1)
+        if self.k_kind == 'log':
+            return ulogspace(self.kmin,self.kmax,self.nk+1)
+        elif self.k_kind == 'linear':
+            return ulinspace(self.kmin,self.kmax,self.nk+1)
+        else:
+            raise Exception('Invalid value of k_kind. Choose between\
+             linear or log')
     
     @cached_property
     def k(self):
@@ -288,6 +396,56 @@ class LineModel(object):
         Width of wavenumber bins
         '''
         return np.diff(self.k_edge)
+        
+    @cached_property
+    def mu_edge(self):
+        '''
+        cos theta bin edges
+        '''
+        return np.linspace(-1,1,self.nmu+1)
+        
+    @cached_property
+    def mu(self):
+        '''
+        List of mu (cos theta) values for anisotropic, or integrals
+        '''
+        Nedge = self.mu_edge.size
+        return (self.mu_edge[0:Nedge-1]+self.mu_edge[1:Nedge])/2.
+        
+    @cached_property
+    def dmu(self):
+        '''
+        Width of cos theta bins
+        '''
+        return np.diff(self.mu_edge)
+        
+    @cached_property
+    def ki_grid(self):
+        '''
+        Grid of k for anisotropic
+        '''
+        return np.meshgrid(self.k,self.mu)[0]
+        
+    @cached_property
+    def mui_grid(self):
+        '''
+        Grid of mu for anisotropic
+        '''
+        return np.meshgrid(self.k,self.mu)[1]
+        
+    @cached_property
+    def k_par(self):
+        '''
+        Grid of k_parallel
+        '''
+        return self.ki_grid*self.mui_grid
+        
+    @cached_property
+    def k_perp(self):
+        '''
+        Grid of k_perpendicular
+        '''
+        return self.ki_grid*np.sqrt(1.-self.mui_grid**2.)
     
     #####################
     # Line luminosities #
@@ -311,11 +469,11 @@ class LineModel(object):
                 raise Exception('For now, dndL is only available for ML '+
                         'models where L(M) is monotnoically increasing')
             # Compute masses corresponding to input luminosities
-            MofL = (interp1d(self.LofM,self.M,bounds_error=False,fill_value=0.)
-                    (self.L)*self.M.unit)
+            MofL = (log_interp1d(self.LofM,self.M,bounds_error=False,fill_value=0.)
+                    (self.L.value)*self.M.unit)
             # Mass function at these masses
-            dndM_MofL = interp1d(self.M,self.dndM,bounds_error=False,
-                            fill_value=0.)(MofL)*self.dndM.unit
+            dndM_MofL = log_interp1d(self.M,self.dndM,bounds_error=False,
+                            fill_value=0.)(MofL.value)*self.dndM.unit
             # Derivative of L(M) w.r.t. M
             dM = MofL*1.e-5
             L_p = getattr(ml,self.model_name)(MofL+dM,self.model_par,self.z)
@@ -359,52 +517,75 @@ class LineModel(object):
         '''
         
         if self.model_type=='LF':
-            bias_par = {'A':1.,'b':1.,'Mcut_min':self.Mmin,'Mcut_max':self.Mmax}
-            L = getattr(ml,'MassPow')(self.M,bias_par,self.z)
+            LF_par = {'A':1.,'b':1.,'Mcut_min':self.Mmin,'Mcut_max':self.Mmax}
+            L = getattr(ml,'MassPow')(self.M,LF_par,self.z)
         else:
             L = getattr(ml,self.model_name)(self.M,self.model_par,self.z)
-            
         return L
         
-    ########################################
-    # Mass function, bias, and NFW profile #
-    ########################################
     @cached_property
-    def h(self):
+    def Pm_for_HMF(self):
         '''
-        Initialzes hmf MassFunction() model.  Note that, unlike other cached
-        properties, h is NOT cleared when update() is called.  Properties of h
-        are updated using the hmf built-in update methods.  This speeds up 
-        calculations where the astrophysical model is updated without changing
-        the underlying cosmology
+        Get the matter power spectrum for pylians hmf and sigma
         '''
-        return MassFunction(cosmo_model=self.cosmo_model,Mmin=hmf_logMmin,
-                                Mmax=hmf_logMmax,dlog10m=hmf_dlog10m,z=self.z,
-                                hmf_model=self.hmf_model)
+        kh_camb, z, Pk_camb =self.cosmo.get_nonlinear_matter_power_spectrum()
+        kh = np.logspace(np.log10(kh_camb[0]),np.log10(kh_camb[-1]),512)
+        P = log_interp1d(kh_camb,Pk_camb[1,:])(kh)
+        return kh, P #in Mpch**-1 and Mpch**3 respectively
         
     @cached_property
     def dndM(self):
         '''
         Halo mass function, note the need to convert from 1/h units in the
-        output of hmf
+        output of pylians
         
         Interpolation done in log space
         '''
-        logMh = np.log10((self.M.to(self.Msunh)).value)
-        d = (10**interp1d(np.log10(self.h.m),np.log10(self.h.dndm))(logMh)
-                *self.Mpch**-3*self.Msunh**-1)
-        # Convert from 1/h units
-        #d = (10.**logd)*self.Mpch**-3*self.Msunh**-1
+        kh, P = self.Pm_for_HMF
+        
+        #mass vector for pylians
+        Mvec = (ulogspace(self.Mmin.to(self.Msunh),self.Mmax.to(self.Msunh),256)).to(self.Msunh)
+        
+        #Compute Halo mass function
+        mf = MFL.MF_theory(kh,P,self.camb_pars.omegam,Mvec.value,self.hmf_model,z=self.z)
+        
+        d = (log_interp1d(Mvec.value,mf)(self.M.to(self.Msunh).value)*
+              self.Mpch**-3*self.Msunh**-1).to(self.Mpch**-3*self.Msunh**-1)
         
         return d.to(u.Mpc**-3*u.Msun**-1)
         
     @cached_property
     def sigmaM(self):
         '''
-        Mass variance at targed redshift, computed using hmf
+        Mass variance at targed redshift, computed using pylians
         '''
+        kh, P = self.Pm_for_HMF
+        
+        #mass vector for pylians
+        Mvec = (ulogspace(self.Mmin.to(self.Msunh),self.Mmax.to(self.Msunh),256)).to(self.Msunh)
+                        
+        #pylians get sigma(R). Get R
+        rho_crit = 2.77536627e11*(self.Msunh*self.Mpch**-3).to(self.Msunh*self.Mpch**-3) #h^2 Msun/Mpc^3
+        rhoM = rho_crit*self.camb_pars.omegam
+        R = (3.0*Mvec/(4.0*np.pi*rhoM))**(1.0/3.0)
+
+        #Get sigma(M) from pylians
+        sigma_vec = np.zeros(len(R))
+        
+        for ir in range(0,len(R)):
+            sigma_vec[ir] = MFL.sigma(kh,P,R[ir].value)        
+
         Mh = (self.M.to(self.Msunh)).value
-        return interp1d(self.h.m,self.h.sigma)(Mh)
+        return log_interp1d(Mvec.value,sigma_vec)(Mh)
+        
+    @cached_property
+    def mass_non_linear(self):
+        '''
+        Mass at which perturbations get non linear 
+        ((sigma(M,z)-delta_c)**2 minimizes)
+        '''
+        delta_c = 1.686
+        return np.argmin((self.sigmaM-delta_c)**2.)
         
     
     @cached_property
@@ -418,20 +599,12 @@ class LineModel(object):
         '''
         
         # nonlinear overdensity
-        dc = self.h.delta_c
+        dc = 1.686
         nu = dc/self.sigmaM
         
-        # Parameters of bias fit
-        y = np.log10(200.)
-        A = 1. + 0.24*y*np.exp(-(4./y)**4.)
-        a = 0.44*y - 0.88
-        B = 0.183
-        b = 1.5
-        C = 0.019 + 0.107*y + 0.19*np.exp(-(4./y)**4.)
-        c = 2.4
-        
-        #return 1.- A*nu**a/(nu**a+dc**a) + B*nu**b + C*nu**c
-        return 1+(nu**2-1)/dc
+        bias = getattr(bm,self.bias_model)(self,dc,nu)
+            
+        return bias
         
     @cached_property
     def ft_NFW(self):
@@ -442,10 +615,14 @@ class LineModel(object):
         # Wechsler et al. 2002 cocentration fit
         a_c =0.1*np.log10((Mi.to(u.Msun)).value)-0.9
         a_c[a_c<0.1] = 0.1
-        con = (4.1/(a_c*(1.+self.z))).value
+        con = (4.1/(a_c*(1.+self.z)))
         f = np.log(1.+con)-con/(1.+con)
         Delta = 200
-        rhobar = (self.h.mean_density0*self.Msunh/self.Mpch**3).to(u.Msun/u.Mpc**3)
+        
+        rho_crit = (2.77536627e11*self.Msunh*self.Mpch**-3).to(self.Msunh*self.Mpch**-3) #h^2 Msun/Mpc^3
+        rhoM = rho_crit*self.camb_pars.omegam
+        rhobar = rhoM.to(u.Msun/u.Mpc**3)
+        
         Rvir = (3*Mi/(4*np.pi*Delta*rhobar))**(1./3.)
         x = ((ki*Rvir/con).decompose()).value        
         si_x, ci_x = sici(x)
@@ -460,13 +637,27 @@ class LineModel(object):
         '''
         Average luminosity-weighted bias for the given cosmology and line
         model.  ASSUMED TO BE WEIGHTED LINERALY BY MASS FOR 'LF' MODELS
+        
+        Includes the effect of f_NL
         '''
+        dc = 1.686
+        Delta_b = 0.
         
-        # Integrands for mass-averaging
-        itgrnd1 = self.LofM*self.bofM*self.dndM
-        itgrnd2 = self.LofM*self.dndM
+        if self.model_type == 'TOY':
+            b_line = self.model_par['bmean']
+        else:
+            # Integrands for mass-averaging
+            itgrnd1 = self.LofM*self.bofM*self.dndM
+            itgrnd2 = self.LofM*self.dndM
+            
+            b_line = np.trapz(itgrnd1,self.M) / np.trapz(itgrnd2,self.M)
+            
+        if self.f_NL != 0:
+            Delta_b = (b_line-1.)*self.f_NL*dc*                                      \
+                      3.*self.camb_pars.omegam*(100.*self.hubble*(u.km/u.s/u.Mpc))**2./   \
+                     (cu.c.to(u.km/u.s)**2.*self.k2Tk)
         
-        return np.trapz(itgrnd1,self.M) / np.trapz(itgrnd2,self.M)
+        return b_line + Delta_b
     
     @cached_property
     def nbar(self):
@@ -484,26 +675,67 @@ class LineModel(object):
     # Power spectrum quantities #
     #############################
     @cached_property
+    def RSD(self):
+        '''
+        Kaiser factor and FoG for RSD
+        '''
+        if self.do_RSD == True:
+            f = self.cosmo.get_fsigma8()[0]/self.transfer.sigma_8[0]
+            #D = self.transfer.transfer_data[6][1,0]/self.transfer.transfer_data[6][1,1]
+                        
+            kaiser = (1.+f/self.bavg*self.mui_grid**2.)**2. #already squared
+            
+            if self.FoG_damp == 'Lorentzian':
+                FoG = (1.+0.5*(self.k_par*self.sigma_NL).decompose()**2.)**-2.
+            elif self.FoG_damp == 'Gaussian':
+                FoG = np.exp(-((self.k_par*self.sigma_NL)**2.)
+                        .decompose()) 
+            else:
+                raise Exception('Only Lorentzian or Gaussian damping terms for FoG')
+                
+            return FoG*kaiser
+        else:
+            return np.ones(self.Pm.shape)
+
+    @cached_property
+    def k2Tk(self):
+        '''
+        Get the k^2T(k), where T(k) is the transfer function.
+        To use for the non gaussian bias.
+        '''
+        kvec = (self.transfer.transfer_data[0][:,0]*self.Mpch**-1).to(u.Mpc**-1)
+        Tk = self.transfer.transfer_data[6][:,0]
+        #Already k^2*T(k)
+        k2tk = kvec**2*Tk/np.max(self.transfer.transfer_data[6][:,1])
+        
+        return log_interp1d(kvec,k2tk)(self.ki_grid.value)*(kvec**2).unit
+        
+    @cached_property
     def Pm(self):
         '''
-        Matter power spectrum computed from hmf. Uses camb if camb is
-        installed, uses the EH transfer function if not.
+        Matter power spectrum computed from camb. 
         '''
-        kh = (self.k.to(self.Mpch**-1)).value
-        P = interp1d(self.h.k,self.h.power)(kh)*self.Mpch**3
+        if not self.nonlinear_pm:
+            kh_camb, z, Pk_camb =self.cosmo.get_linear_matter_power_spectrum(params=self.camb_pars)
+        else:
+            kh_camb, z, Pk_camb =self.cosmo.get_nonlinear_matter_power_spectrum(params=self.camb_pars)
+            
+        kh = (self.ki_grid.to(self.Mpch**-1)).value
+        P = log_interp1d(kh_camb,Pk_camb[1,:])(kh)
         
-        return P.to(u.Mpc**3)
+        return (P*self.Mpch**3).to(self.Mpch**3).to(u.Mpc**3)
+                
     
     @cached_property
-    def Tmean(self):
+    def Lmean(self):
         '''
-        Sky-averaged brightness temperature at nuObs from target line.  Has
+        Sky-averaged luminosity density at nuObs from target line.  Has
         two cases for 'LF' and 'ML' models
         '''
         if self.model_type=='LF':
             itgrnd = self.L*self.dndL
             Lbar = np.trapz(itgrnd,self.L)
-        else:
+        elif self.model_type == 'ML':
             itgrnd = self.LofM*self.dndM
             Lbar = np.trapz(itgrnd,self.M)*self.fduty
             # Special case for Tony Li model- scatter does not preserve LCO
@@ -512,19 +744,18 @@ class LineModel(object):
                 sig_SFR = self.model_par['sig_SFR']
                 Lbar = Lbar*np.exp((alpha**-2-alpha**-1)
                                     *sig_SFR**2*np.log(10)**2/2.)
-            
-        return self.CLT*Lbar
+        return Lbar
         
     @cached_property
-    def Pshot(self):
+    def L2mean(self):
         '''
-        Shot noise amplitude for target line at frequency nuObs.  Has two
-        cases for 'LF' and 'ML' models
+        Sky-averaged squared luminosity density at nuObs from target line.  Has
+        two cases for 'LF' and 'ML' models
         '''
         if self.model_type=='LF':
             itgrnd = self.L**2*self.dndL
             L2bar = np.trapz(itgrnd,self.L)
-        else:
+        elif self.model_type=='ML':
             itgrnd = self.LofM**2*self.dndM
             L2bar = np.trapz(itgrnd,self.M)*self.fduty
             # Add L vs. M scatter
@@ -535,8 +766,33 @@ class LineModel(object):
                 sig_SFR = self.model_par['sig_SFR']
                 L2bar = L2bar*np.exp((2./alpha**2-1./alpha)
                                     *sig_SFR**2*np.log(10)**2)
-            
-        return self.CLT**2*L2bar
+
+        return L2bar
+        
+    @cached_property
+    def Tmean(self):
+        '''
+        Sky-averaged brightness temperature at nuObs from target line.  Has
+        two cases for 'LF' and 'ML' models.
+        You can direcyly input Tmean using TOY model
+        '''
+        if self.model_type == 'TOY':
+            return self.model_par['Tmean']
+        else:
+            return self.CLT*self.Lmean
+        
+    @cached_property
+    def Pshot(self):
+        '''
+        Shot noise amplitude for target line at frequency nuObs.  Has two
+        cases for 'LF' and 'ML' models. 
+        You can directly input T2mean using TOY model
+        '''
+        
+        if self.model_type == 'TOY':
+            return self.model_par['T2mean']
+        else:
+            return self.CLT**2*self.L2mean
         
     @cached_property
     def Pk_twohalo(self):
@@ -549,10 +805,11 @@ class LineModel(object):
                 print("One halo term only available for ML models")
                 wt = self.Tmean*self.bavg
             else:
+                wt = np.zeros(self.ki_grid.shape)
                 Mass_Dep = self.LofM*self.bofM*self.dndM
                 itgrnd = (np.tile(Mass_Dep,[self.k.size,1]).transpose()
                             *self.ft_NFW)
-                wt = self.CLT*np.trapz(itgrnd,self.M,axis=0)
+                wt[:,:] = self.CLT*np.trapz(itgrnd,self.M,axis=0)
                 # Special case for SFR(M) scatter in Tony Li model
                 if self.model_name=='TonyLi':
                     alpha = self.model_par['alpha']
@@ -580,11 +837,11 @@ class LineModel(object):
                 sig_SFR = self.model_par['sig_SFR']
                 itgrnd = itgrnd*np.exp((2.*alpha**-2-alpha**-1)
                                     *sig_SFR**2*np.log(10)**2)
-            return self.CLT**2.*np.trapz(itgrnd,self.M,axis=0)
+            wt = np.zeros(self.ki_grid.shape)
+            wt[:,:] = np.trapz(itgrnd,self.M,axis=0)
+            return self.CLT**2.*wt
         else:
-            return np.zeros(self.k.size)*self.Pshot.unit
-            
-            
+            return np.zeros(self.Pm.shape)*self.Pshot.unit
     
     @cached_property    
     def Pk_clust(self):
@@ -592,22 +849,91 @@ class LineModel(object):
         Clustering power spectrum of target line, i.e. power spectrum without
         shot noise.
         '''
-        return self.Pk_twohalo+self.Pk_onehalo
+        return (self.Pk_twohalo+self.Pk_onehalo)*self.RSD
     
     @cached_property    
     def Pk_shot(self):
         '''
         Shot-noise power spectrum of target line, i.e. power spectrum without
-        clustering, or Pshot*ones(k.size)
+        clustering
         '''
-        return self.Pshot*np.ones(self.k.size)
+        return self.Pshot*np.ones(self.Pm.shape)
     
     @cached_property    
     def Pk(self):
         '''
-        Full line power spectrum including both clustering and shot noise
+        Full line power spectrum including both clustering and shot noise 
+        as function of k and mu
         '''
-        return self.Pk_clust+self.Pk_shot
+        if self.smooth:
+            return self.Wk*(self.Pk_clust+self.Pk_shot)
+        else:
+            return self.Pk_clust+self.Pk_shot
+        
+    @cached_property
+    def Pk_0(self):
+        '''
+        Monopole of the power spectrum as function of k
+        '''
+        return 0.5*np.trapz(self.Pk,self.mu,axis=0)
+        
+    @cached_property
+    def Pk_2(self):
+        '''
+        Quadrupole of the power spectrum as function of k
+        '''
+        L2 = legendre(2)
+        return 2.5*np.trapz(self.Pk*L2(self.mui_grid),self.mu,axis=0)
+        
+    @cached_property
+    def Pk_4(self):
+        '''
+        Hexadecapole of the power spectrum as function of k
+        '''
+        L4 = legendre(4)
+        return 4.5*np.trapz(self.Pk*L4(self.mui_grid),self.mu,axis=0)
+        
+    def Pk_l(self,l):
+        '''
+        Multipole l of the power spectrum
+        '''
+        if l == 0:
+            return self.Pk_0
+        elif l == 2:
+            return self.Pk_2
+        elif l == 4:
+            return self.Pk_4
+        else:
+            Ll = legendre(l)
+            return (2.*l+1.)/2.*np.trapz(self.Pk*Ll(self.mui_grid),
+                                        self.mu,axis=0)
+        
+    def save_in_file(self, name, lis):
+        '''
+        Save the list (i.e. [k, Pk, sk]) in a file with path 'name'
+        Arguments: name = <path>, lis = <what to save>
+        '''
+        # ~ if 'LIST' not in kwargs:
+            # ~ raise TypeError("Please input the list using the 'LIST=[]' as argument")
+        # ~ lis = kwargs['LIST']
+        # ~ if 'name' in kwargs:
+            # ~ name = kwargs['name']
+        # ~ else:
+            # ~ name = 'test.txt'
+        LEN = len(lis[0])
+        lenlis = len(lis)
+        for i in range(1, lenlis):
+            if len(lis[i]) != LEN:
+                raise Exception('ALL items in the list to save MUST be 1d arrays with the same length!')
+        
+        MAT = np.zeros((LEN,lenlis))
+        header = 'Units::   '
+        for i in range(0,lenlis):
+            MAT[:,i] = lis[i].value
+            header += str(lis[i].unit)+'\t || '
+
+        np.savetxt(name,MAT,header=header)
+        return
         
     ########################################################################
     # Method for updating input parameters and resetting cached properties #
@@ -628,23 +954,39 @@ class LineModel(object):
         # Clear cached properties so they can be updated
         for attribute in self._update_list:
             # Use built-in hmf updater to change h
-            if attribute!='h':
+            if attribute!='cosmo_input':
                 delattr(self,attribute)
         self._update_list = []
-        
         # Set new parameter values
         for key in new_params:
-            setattr(self, key, new_params[key])
-        
-        # Update hmf if cosmological model has changed
-        if 'cosmo_model' in new_params:
-            self.h.update(cosmo_model=new_params['cosmo_model'])
-        elif 'hmf_model' in new_params:
-            self.h.update(hmf_model=new_params['hmf_model'])
-        elif 'nuObs' in new_params:
-            self.h.update(z=self.z)
-        elif 'nu' in new_params:
-            self.h.update(z=self.z)
+            if key!='cosmo_input':
+                setattr(self, key, new_params[key])
+        if 'cosmo_input' in new_params:
+            temp = new_params['cosmo_input']
+            for key in temp:
+                self.cosmo_input[key] = temp[key]
+            
+            self.camb_pars = camb.set_params(H0=self.cosmo_input['H0'], cosmomc_theta=self.cosmo_input['cosmomc_theta'],
+                 ombh2=self.cosmo_input['ombh2'], omch2=self.cosmo_input['omch2'], omk=self.cosmo_input['omk'],
+                 neutrino_hierarchy=self.cosmo_input['neutrino_hierarchy'], 
+                 num_massive_neutrinos=self.cosmo_input['num_massive_neutrinos'],
+                 mnu=self.cosmo_input['mnu'], nnu=self.cosmo_input['nnu'], YHe=self.cosmo_input['YHe'], 
+                 meffsterile=self.cosmo_input['meffsterile'], 
+                 standard_neutrino_neff=self.cosmo_input['standard_neutrino_neff'], 
+                 TCMB=self.cosmo_input['TCMB'], tau=self.cosmo_input['tau'], 
+                 deltazrei=self.cosmo_input['deltazrei'], 
+                 bbn_predictor=self.cosmo_input['bbn_predictor'], 
+                 theta_H0_range=self.cosmo_input['theta_H0_range'],
+                 w=self.cosmo_input['w'],wa=self.cosmo_input['wa'],cs2=self.cosmo_input['cs2'], 
+                 dark_energy_model=self.cosmo_input['dark_energy_model'],
+                 As=self.cosmo_input['As'], ns=self.cosmo_input['ns'], 
+                 nrun=self.cosmo_input['nrun'], nrunrun=self.cosmo_input['nrunrun'], 
+                 r=self.cosmo_input['r'], nt=self.cosmo_input['nt'], ntrun=self.cosmo_input['ntrun'], 
+                 pivot_scalar=self.cosmo_input['pivot_scalar'], 
+                 pivot_tensor=self.cosmo_input['pivot_tensor'], 
+                 parameterization=self.cosmo_input['parameterization'],
+                 halofit_version=self.cosmo_input['halofit_version'])
+                 
             
     #####################################################
     # Method for resetting to original input parameters #
