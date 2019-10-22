@@ -9,10 +9,12 @@ from scipy.special import erf
 from scipy.stats import poisson
 from scipy.interpolate import interp1d
 from scipy.misc import factorial as fact
+from scipy.special import legendre
+
 
 from line_model import LineModel
 from _utils import cached_property,get_default_params,check_params,check_model
-from _utils import ulogspace
+from _utils import ulogspace, ulinspace
 import _vid_tools as vt
 import luminosity_functions as lf      
 
@@ -164,15 +166,32 @@ class LineObs(LineModel):
         '''
         Comoving distance to central redshift of field
         '''
-        return self.h.cosmo.comoving_distance(self.z)
+        return self.cosmo.comoving_radial_distance(self.z)*u.Mpc
     
+    @cached_property
+    def Sfield(self):
+        '''
+        Area of single field in the sky in Mpc**2
+        '''
+        return (self.r0**2*(self.Omega_field/(1.*u.rad**2))).to(u.Mpc**2)
+        
+    @cached_property
+    def Lfield(self):
+        '''
+        Depth of a single field
+        '''
+        z_min = (self.nu/(self.nuObs+self.Delta_nu/2.)-1).value
+        z_max = (self.nu/(self.nuObs-self.Delta_nu/2.)-1).value
+        dr_los = (self.cosmo.comoving_radial_distance(z_max)-
+                    self.cosmo.comoving_radial_distance(z_min))
+        return dr_los*u.Mpc
+                
     @cached_property    
     def Vfield(self):
         '''
         Comoving volume of a single field
         '''
-        return (self.r0**2*(self.Omega_field/(1.*u.rad**2))*cu.c*self.Delta_nu
-                *(1+self.z)**2/(self.H*self.nu)).to(u.Mpc**3)
+        return self.Sfield*self.Lfield
     
     @cached_property            
     def Vvox(self):
@@ -229,63 +248,425 @@ class LineObs(LineModel):
         High-resolution cutoff for transverse modes
         '''
         return (self.r0*(self.beam_width/(1*u.rad))).to(u.Mpc)
+                
+    @cached_property
+    def kmax_los(self):
+        '''
+        Maximum k in line of sight direction
+        '''
+        return 2.*np.pi/self.sigma_par
+    
+    @cached_property
+    def kmax_sky(self):
+        '''
+        Maximum k in the transverse direction
+        '''
+        return 2.*np.pi/self.sigma_perp
+        
+    @cached_property
+    def kmin_los(self):
+        '''
+        Minimum k in the line of sight direction
+        '''
+        return 2*np.pi/self.Lfield
+        
+    @cached_property
+    def kmin_sky(self):
+        '''
+        Minimum k in the transverse direction
+        '''
+        return 2*np.pi/self.Sfield**0.5
+    
+    @cached_property
+    def kmin_field(self):
+        '''
+        Minimum k accessible in a single field, set by the maximum side length
+        '''
+        return min([self.kmin_los,self.kmin_sky])
+        
+    @cached_property
+    def kmax_field(self):
+        '''
+        Maximum k accesible in a given survey, set by the best resolution
+        '''
+        return max([self.kmax_los,self.kmax_sky])
+        
+    @cached_property
+    def Wkmax_par(self):
+        '''
+        Resolution cutoff in power spectrum in the los direction
+        '''
+        exparg = -((self.k_par*self.sigma_par)**2).decompose()
+        return np.exp(exparg)
+        
+    @cached_property
+    def Wkmax_perp(self):
+        '''
+        Resolution cutoff in power spectrum in the transverse direction
+        '''
+        exparg = -((self.k_perp*self.sigma_perp)**2).decompose()
+        return np.exp(exparg)
+        
+    @cached_property
+    def Wkmax(self):
+        '''
+        Resolution cutoff in power spectrum
+        '''
+        return self.Wkmax_par*self.Wkmax_perp
+        
+    @cached_property
+    def Wkmin_par(self):
+        '''
+        Precision cutoff in power spectrum due to volume observed in los direction
+        '''
+        exparg = -((self.k_par/self.kmin_los)**2).decompose()
+        return 1.-np.exp(exparg)
+        
+    @cached_property
+    def Wkmin_perp(self):
+        '''
+        Precision cutoff in power spectrum due to volume observed in transverse direction
+        '''
+        exparg = -((self.k_perp/self.kmin_sky)**2).decompose()
+        return 1.-np.exp(exparg)
+        
+    @cached_property
+    def Wkmin(self):
+        '''
+        Precision cutoff in power spectrum due to volume observed
+        '''
+        return self.Wkmin_par*self.Wkmin_perp
         
     @cached_property
     def Wk(self):
         '''
         Resolution cutoff in power spectrum
         '''
-        mu = np.linspace(0,1,1000)
-        ki,mui = np.meshgrid(self.k,mu)
-        exparg1 = -(self.k**2*self.sigma_perp**2).decompose()
-        exparg2 = -((ki**2*(self.sigma_par**2-self.sigma_perp**2)*mui**2)
-                    .decompose())
-        return np.exp(exparg1)*np.trapz(np.exp(exparg2),mu,axis=0)
-        
+        return self.Wkmin*self.Wkmax
+
     @cached_property
     def Nmodes(self):
         '''
-        Number of modes between k and k+dk
+        Number of modes between k and k+dk.        
+        Multiply by dmu/2 to get the number of modes between k and k+dk and mu and mu+dmu
         '''
-        return self.k**2.*self.dk*self.Vfield*self.Nfield/(4*np.pi**2)
+        return self.ki_grid**2*self.dk*self.Vfield/4./np.pi**2.
         
     @cached_property
     def sk_CV(self):
         '''
-        Error at k due to sample variance
+        Error at k and mu due to sample variance
         '''
-        return self.Pk/(np.sqrt(self.Nmodes)*self.Wk)
+        return self.Pk/np.sqrt(self.Nmodes*self.dmu[0])#*self.Wk)
+        
+    @cached_property
+    def covmat_CV_00(self):
+        '''
+        00 term of the covariance matrix from CV
+        '''
+        return 0.5*np.trapz(self.Pk**2/self.Nmodes,self.mu,axis=0)
+        
+    @cached_property
+    def covmat_CV_02(self):
+        '''
+        02 term of the covariance matrix from CV
+        (equal to the 20)
+        '''
+        L2 = legendre(2)(self.mui_grid)
+        return 5./2.*np.trapz(self.Pk**2*L2/self.Nmodes,self.mu,axis=0)
+        
+    @cached_property
+    def covmat_CV_04(self):
+        '''
+        04 term of the covariance matrix from CV
+        (equal to the 40)
+        '''
+        L4 = legendre(4)(self.mui_grid)
+        return 9./2.*np.trapz(self.Pk**2*L4/self.Nmodes,self.mu,axis=0)
+        
+    @cached_property
+    def covmat_CV_22(self):
+        '''
+        22 term of the covariance matrix from CV
+        '''
+        L2 = legendre(2)(self.mui_grid)
+        return 25./2.*np.trapz(self.Pk**2*L2*L2/self.Nmodes,self.mu,axis=0)
+        
+    @cached_property
+    def covmat_CV_24(self):
+        '''
+        24 term of the covariance matrix from CV
+        (equal to the 42)
+        '''
+        L2 = legendre(2)(self.mui_grid)
+        L4 = legendre(4)(self.mui_grid)
+        return 45./2.*np.trapz(self.Pk**2*L2*L4/self.Nmodes,self.mu,axis=0)
+        
+    @cached_property
+    def covmat_CV_44(self):
+        '''
+        44 term of the covariance matrix from CV
+        '''
+        L4 = legendre(4)(self.mui_grid)
+        return 81./2.*np.trapz(self.Pk**2*L4*L4/self.Nmodes,self.mu,axis=0)
+        
+    def covmat_CV_l1l2(self,l1,l2):
+        '''
+        l1l2 term of the covariance matrix from CV
+        '''
+        if l1 == 0 and l2 == 0:
+            return self.covmat_CV_00
+        elif l1 == 0 and l2 == 2:
+            return self.covmat_CV_02
+        elif l1 == 0 and l2 == 4:
+            return self.covmat_CV_04
+        elif l1 == 2 and l2 == 2:
+            return self.covmat_CV_22
+        elif l1 == 2 and l2 == 4:
+            return self.covmat_CV_24
+        elif l1 == 4 and l2 == 4:
+            return self.covmat_CV_44
+        else:
+            Ll1 = legendre(l1)(self.mui_grid)
+            Ll2 = legendre(l2)(self.mui_grid)
+            return (2.*l1+1.)*(2.*l2+1.)/2.*np.trapz(self.Pk**2*L1*L2/self.Nmodes,self.mu,axis=0)
         
     @cached_property
     def sk_N(self):
         '''
-        Error at k due to instrumental noise
+        Error at k and mu due to instrumental noise
         '''
-        return self.Pnoise/(np.sqrt(self.Nmodes)*self.Wk)
+        if self.smooth:
+            window = 1.
+        else:
+            window = self.Wk
+        return self.Pnoise/(np.sqrt(self.Nmodes*self.dmu[0]/2.)*window)
+            
+    @cached_property
+    def covmat_N_00(self):
+        '''
+        00 term of the covariance matrix from instrumental noise
+        '''
+        if self.smooth:
+            window = 1.
+        else:
+            window = self.Wk
+        return 1./2.*np.trapz(self.Pnoise**2./(self.Nmodes*window**2.),self.mu,axis=0)
+        
+    @cached_property
+    def covmat_N_02(self):
+        '''
+        02 term of the covariance matrix from instrumental noise
+        (equal to the 02)        
+        '''
+        if self.smooth:
+            window = 1.
+        else:
+            window = self.Wk
+        L2 = legendre(2)(self.mui_grid)
+        return 5./2.*np.trapz(self.Pnoise**2.*L2/(self.Nmodes*window**2.),self.mu,axis=0)
+
+    @cached_property
+    def covmat_N_04(self):
+        '''
+        04 term of the covariance matrix from instrumental noise
+        (equal to the 04)        
+        '''
+        if self.smooth:
+            window = 1.
+        else:
+            window = self.Wk
+        L4 = legendre(4)(self.mui_grid)
+        return 9./2.*np.trapz(self.Pnoise**2.*L4/(self.Nmodes*window**2.),self.mu,axis=0)
+        
+    @cached_property
+    def covmat_N_22(self):
+        '''
+        22 term of the covariance matrix from instrumental noise
+        '''
+        if self.smooth:
+            window = 1.
+        else:
+            window = self.Wk
+        L2 = legendre(2)(self.mui_grid)
+        return 25./2.*np.trapz(self.Pnoise**2.*L2*L2/(self.Nmodes*window**2.),self.mu,axis=0)
+
+    @cached_property
+    def covmat_N_24(self):
+        '''
+        24 term of the covariance matrix from instrumental noise
+        (equal to the 42)
+        '''
+        if self.smooth:
+            window = 1.
+        else:
+            window = self.Wk
+        L2 = legendre(2)(self.mui_grid)
+        L4 = legendre(4)(self.mui_grid)
+        return 45./2.*np.trapz(self.Pnoise**2.*L2*L4/(self.Nmodes*window**2),self.mu,axis=0)
+        
+    @cached_property
+    def covmat_N_44(self):
+        '''
+        44 term of the covariance matrix from instrumental noise
+        '''
+        L4 = legendre(4)(self.mui_grid)
+        if self.smooth:
+            window = 1.
+        else:
+            window = self.Wk
+        return 81./2.*np.trapz(self.Pnoise**2.*L4*L4/(self.Nmodes*window**2),self.mu,axis=0)
+        
+    def covmat_N_l1l2(self,l1,l2):
+        '''
+        l1l2 term of the covariance matrix from N
+        '''
+        if self.smooth:
+            window = 1.
+        else:
+            window = self.Wk
+        if l1 == 0 and l2 == 0:
+            return self.covmat_N_00
+        elif l1 == 0 and l2 == 2:
+            return self.covmat_N_02
+        elif l1 == 0 and l2 == 4:
+            return self.covmat_N_04
+        elif l1 == 2 and l2 == 2:
+            return self.covmat_N_22
+        elif l1 == 2 and l2 == 4:
+            return self.covmat_N_24
+        elif l1 == 4 and l2 == 4:
+            return self.covmat_N_44
+        else:
+            Ll1 = legendre(l1)(self.mui_grid)
+            Ll2 = legendre(l2)(self.mui_grid)
+            return (2.*l1+1.)*(2.*l2+1.)*np.trapz(self.Pnoise**2.*l1l2/(self.Nmodes*window**2),self.mu,axis=0)
         
     @cached_property
     def sk(self):
         '''
-        Total error at k
+        Total error at k and mu
         '''
         return self.sk_CV+self.sk_N
         
     @cached_property
-    def kmin_field(self):
+    def covmat_00(self):
         '''
-        Minimum k accessible in a single field, set by the minimum side length
+        00 term of the total covariance matrix
         '''
-        # Line-of-sight side length
-        z_min = self.nu/(self.nuObs+self.Delta_nu/2.)-1
-        z_max = self.nu/(self.nuObs-self.Delta_nu/2.)-1
-        dr_los = (self.h.cosmo.comoving_distance(z_max)-
-                    self.h.cosmo.comoving_distance(z_min))
-        kmin_los = 2*np.pi/dr_los
-        # Transverse side length
-        dr_sky = (np.sqrt((self.Omega_field/(1*u.rad**2)).decompose())
-                    *self.h.cosmo.angular_diameter_distance(self.z))
-        kmin_sky = 2*np.pi/dr_sky
-        return min([kmin_los,kmin_sky])
+        if self.smooth:
+            window = 1.
+        else:
+            window = self.Wk
+        integrand = (self.Pk+self.Pnoise/window)/self.Nmodes**0.5
+        return 0.5*np.trapz(integrand**2,self.mu,axis=0)
+        
+    @cached_property
+    def covmat_02(self):
+        '''
+        02 term of the total covariance matrix
+        '''
+        if self.smooth:
+            window = 1.
+        else:
+            window = self.Wk
+        L2 = legendre(2)(self.mui_grid)
+        integrand = (self.Pk+self.Pnoise/window)/self.Nmodes**0.5
+        return 5./2.*np.trapz(integrand**2*L2,self.mu,axis=0)
+        
+    @cached_property
+    def covmat_04(self):
+        '''
+        04 term of the total covariance matrix
+        '''
+        if self.smooth:
+            window = 1.
+        else:
+            window = self.Wk
+        L4 = legendre(4)(self.mui_grid)
+        integrand = (self.Pk+self.Pnoise/window)/self.Nmodes**0.5
+        return 9./2.*np.trapz(integrand**2*L4,self.mu,axis=0)
+        
+    @cached_property
+    def covmat_22(self):
+        '''
+        22 term of the total covariance matrix
+        '''
+        if self.smooth:
+            window = 1.
+        else:
+            window = self.Wk
+        L2 = legendre(2)(self.mui_grid)
+        integrand = (self.Pk+self.Pnoise/window)/self.Nmodes**0.5
+        return 25./2.*np.trapz(integrand**2*L2*L2,self.mu,axis=0)
+        
+    @cached_property
+    def covmat_24(self):
+        '''
+        24 term of the total covariance matrix
+        '''
+        if self.smooth:
+            window = 1.
+        else:
+            window = self.Wk
+        L2 = legendre(2)(self.mui_grid)
+        L4 = legendre(4)(self.mui_grid)
+        integrand = (self.Pk+self.Pnoise/window)/self.Nmodes**0.5
+        return 45./2.*np.trapz(integrand**2*L2*L4,self.mu,axis=0)
+        
+    @cached_property
+    def covmat_44(self):
+        '''
+        44 term of the total covariance matrix
+        '''
+        if self.smooth:
+            window = 1.
+        else:
+            window = self.Wk
+        L4 = legendre(4)(self.mui_grid)
+        integrand = (self.Pk+self.Pnoise/window)/self.Nmodes**0.5
+        return 81./2.*np.trapz(integrand**2*L4*L4,self.mu,axis=0)
+
+    def covmat_l1l2(self,l1,l2):
+        '''
+        l1l2 term of the total covariance matrix
+        '''
+        if self.smooth:
+            window = 1.
+        else:
+            window = self.Wk
+        if l1 == 0 and l2 == 0:
+            return self.covmat_00
+        elif l1 == 0 and l2 == 2:
+            return self.covmat_02
+        elif l1 == 0 and l2 == 4:
+            return self.covmat_04
+        elif l1 == 2 and l2 == 2:
+            return self.covmat_22
+        elif l1 == 2 and l2 == 4:
+            return self.covmat_24
+        elif l1 == 4 and l2 == 4:
+            return self.covmat_44
+        else:
+            l1 = legendre(l1)(self.mui_grid)
+            l2 = legendre(l2)(self.mui_grid)
+            integrand = (self.Pk+self.Pnoise/window)/self.Nmodes**0.5
+            return (2.*l1+1.)*(2.*l2+1.)*np.trapz(integrand**2*l1*l2,self.mu,axis=0)
+        
+    @cached_property
+    def nk_field(self):
+        '''
+        Number of k bins for a given survey, based on kmax, kmin and 
+        delta_k (=kmin)
+        
+        Only works if k_kind=linear
+        '''
+        if not self.k_kind == 'linear':
+            raise Exception('nk_field can only be computed for linear spacing')
+        kmax = self.kmax_field
+        delta_k = self.kmin_field
+        
+        return (kmax-delta_k)/delta_k
         
     @cached_property
     def SNR(self):
@@ -293,7 +674,90 @@ class LineObs(LineModel):
         Signal to noise ratio for given model and experiment
         '''
         SNR_k = (self.Pk**2/self.sk**2).decompose()
-        return np.sqrt(SNR_k[self.k>=self.kmin_field].sum())
+        ind = np.logical_and(self.k>=self.kmin_field,self.k<=self.kmax_field)
+        return np.sqrt(SNR_k[ind].sum())
+        
+    @cached_property
+    def SNR_0(self):
+        '''
+        Signal to noise ratio in the monopole for given model and experiment
+        '''
+        SNR_k = (self.Pk_0**2/self.covmat_00).decompose()
+        ind = np.logical_and(self.k>=self.kmin_field,self.k<=self.kmax_field)
+        return np.sqrt(SNR_k[ind].sum())
+        
+    @cached_property
+    def SNR_2(self):
+        '''
+        Signal to noise ratio in the quadrupole for given model and experiment
+        '''
+        SNR_k = (self.Pk_2**2/self.covmat_22).decompose()
+        ind = np.logical_and(self.k>=self.kmin_field,self.k<=self.kmax_field)
+        return np.sqrt(SNR_k[ind].sum())
+        
+    @cached_property
+    def SNR_4(self):
+        '''
+        Signal to noise ratio in the hexadecapole for given model and experiment
+        '''
+        SNR_k = (self.Pk_4**2/self.covmat_44).decompose()
+        ind = np.logical_and(self.k>=self.kmin_field,self.k<=self.kmax_field)
+        return np.sqrt(SNR_k[ind].sum())
+        
+    @cached_property
+    def SNR_multipoles(self):
+        '''
+        Signal to noise ratio in the monopole, quadrupole and hexadecapole
+        for given model and experiment
+        '''
+        ind = np.where(np.logical_and(self.k>=self.kmin_field,
+                                      self.k<=self.kmax_field))[0]
+        Nkseen = len(ind)
+        Pkvec = np.zeros(Nkseen*3)
+        covmat = np.zeros((Nkseen*3,Nkseen*3))
+        
+        Pkvec[:Nkseen] = self.Pk_0[ind]
+        Pkvec[Nkseen:Nkseen*2] = self.Pk_2[ind]
+        Pkvec[Nkseen*2:Nkseen*3] = self.Pk_4[ind]
+        
+        covmat[:Nkseen,:Nkseen] = np.diag(self.covmat_00[ind])
+        covmat[:Nkseen,Nkseen:Nkseen*2] = np.diag(self.covmat_02[ind])
+        covmat[:Nkseen,Nkseen*2:Nkseen*3] = np.diag(self.covmat_04[ind])
+        covmat[Nkseen:Nkseen*2,:Nkseen] = np.diag(self.covmat_02[ind])
+        covmat[Nkseen:Nkseen*2,Nkseen:Nkseen*2] = np.diag(self.covmat_22[ind])
+        covmat[Nkseen:Nkseen*2,Nkseen*2:Nkseen*3] = np.diag(self.covmat_24[ind])
+        covmat[Nkseen*2:Nkseen*3,:Nkseen] = np.diag(self.covmat_04[ind])
+        covmat[Nkseen*2:Nkseen*3,Nkseen:Nkseen*2] = np.diag(self.covmat_24[ind])
+        covmat[Nkseen*2:Nkseen*3,Nkseen*2:Nkseen*3] = np.diag(self.covmat_44[ind])
+        
+        return np.sqrt(np.dot(Pkvec,np.dot(np.linalg.inv(covmat),Pkvec)))
+        
+    def get_covmat(self,Nmul):
+        '''
+        Get the covariance matrix for a given number of multipoles 
+        (starting always from the monopole and without skipping any)
+        '''
+        if Nmul > 3:
+            raise Exception('Not implemented yet!\
+            Implement covmat_66 and expand this function')
+            
+        covmat = np.zeros((self.nk*Nmul,self.nk*Nmul))
+        covmat[:self.nk,:self.nk] = np.diag(self.covmat_00)
+        
+        if Nmul > 1:
+            covmat[:self.nk,self.nk:self.nk*2] = np.diag(self.covmat_02)
+            covmat[self.nk:self.nk*2,:self.nk] = np.diag(self.covmat_02)
+            covmat[self.nk:self.nk*2,self.nk:self.nk*2] = np.diag(self.covmat_22)
+            covmat[:self.nk,self.nk:self.nk*2] = np.diag(self.covmat_02)
+        if Nmul > 2:
+            covmat[:self.nk,self.nk*2:self.nk*3] = np.diag(self.covmat_04)
+            covmat[self.nk:self.nk*2,self.nk*2:self.nk*3] = np.diag(self.covmat_24)
+            covmat[self.nk*2:self.nk*3,:self.nk] = np.diag(self.covmat_04)
+            covmat[self.nk*2:self.nk*3,self.nk:self.nk*2] = np.diag(self.covmat_24)
+            covmat[self.nk*2:self.nk*3,self.nk*2:self.nk*3] = np.diag(self.covmat_44)
+
+        return covmat
+        
 
     #############################################
     #############################################
@@ -311,7 +775,7 @@ class LineObs(LineModel):
         logarithmically spaced if do_fast=False
         '''
         if self.do_fast_VID:
-            Te = np.linspace(self.Tmin_VID,self.Tmax_VID,self.nT+1)
+            Te = ulinspace(self.Tmin_VID,self.Tmax_VID,self.nT+1)
         else:
             Te = ulogspace(self.Tmin_VID,self.Tmax,self.nT+1)
             
