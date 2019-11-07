@@ -350,7 +350,7 @@ class LineObs(LineModel):
         Number of modes between k and k+dk.        
         Multiply by dmu/2 to get the number of modes between k and k+dk and mu and mu+dmu
         '''
-        return self.ki_grid**2*self.dk*self.Vfield/4./np.pi**2.
+        return self.ki_grid**2*self.dk*self.Vfield*self.Nfield/4./np.pi**2.
         
     @cached_property
     def sk_CV(self):
