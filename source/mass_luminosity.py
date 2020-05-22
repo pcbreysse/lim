@@ -18,8 +18,9 @@ import numpy as np
 import astropy.units as u
 import astropy.constants as cu
 from scipy.interpolate import interp2d,interp1d
+import os 
 
-def MassPow(Mvec, MLpar, z):
+def MassPow(self,Mvec, MLpar, z):
     """
     Power law L(M)/L_sun = A*(M/M_sun)^b (See Breysse et al. 2015)
 
@@ -41,7 +42,8 @@ def MassPow(Mvec, MLpar, z):
     L = A * np.array(Mvec)**b*u.Lsun
     return L
     
-def DblPwr(Mvec, MLpar, z):
+    
+def DblPwr(self,Mvec, MLpar, z):
     """
     Double power law with redshift dependence 
     L(M)/Lsun = A * 10^(b1*z) * (M/1e8 Msun)^b2 * (1+M/M_*)^b3
@@ -72,7 +74,35 @@ def DblPwr(Mvec, MLpar, z):
     
     return L
     
-def TonyLi(Mvec, MLpar, z):
+    
+def COMAP_Fid(self,Mvec,MLpar,z):
+    '''
+    New COMAP fiducial double-power law model
+    L(M) = C/((M/Ms)^A+(M/Ms)^B)
+    
+    Parameters:
+    A   Low-mass slope
+    B   High-mass slope
+    C   Overall normalization
+    Ms  Turnover mass
+    
+    Predicted values for (A, B, log C, log (Ms/Msol), sigma):
+    * pessimistic: (-3.7, 7.0, 11.1, 12.5, 0.36)
+    * realistic: (-2.75, 0.05, 10.61, 12.3, 0.42)
+    * realistic-plus: (-2.85, -0.42, 10.63, 12.3, 0.42)
+    * optimistic: (-2.4, -0.5, 10.45, 12.21, 0.36))
+    '''
+    
+    A = MLpar['A']
+    B = MLpar['B']
+    C = MLpar['C']
+    Ms = MLpar['Ms']
+    
+    L = C/((Mvec/Ms)**A+(Mvec/Ms)**B)
+    return L*4.9e-5*u.Lsun
+    
+    
+def TonyLi(self,Mvec, MLpar, z):
     '''
     CO emission model from Li et al. (2016).  Uses Behroozi et al. SFR(M)
     results.
@@ -103,29 +133,13 @@ def TonyLi(Mvec, MLpar, z):
     >>> print TonyLi(Mvec,MLpar,z)
     [  2.05...e+02   7.86...e+03   4.56...e+05] solLum
     '''
-    
     alpha = MLpar['alpha']
     beta = MLpar['beta']
     dMF = MLpar['dMF']
     BehrooziFile = MLpar['BehrooziFile']
     
     # Read and interpolate Behroozi SFR(M) data
-    x = np.loadtxt(BehrooziFile)
-    zb = np.unique(x[:,0])-1.
-    logMb = np.unique(x[:,1])
-    logSFRb = x[:,2].reshape(137,122,order='F')
-    
-    logSFR_interp = interp2d(logMb,zb,logSFRb,bounds_error=False,fill_value=0.)
-    
-    # Compute SFR(M) in Msun/yr
-    logM = np.log10((Mvec.to(u.Msun)).value)
-    if np.array(z).size>1:
-        SFR = np.zeros(logM.size)
-        for ii in range(0,logM.size):
-            SFR[ii] = 10.**logSFR_interp(logM[ii],z[ii])
-    else:
-        SFR = 10.**logSFR_interp(logM,z)
-    
+    SFR = Behroozi_SFR(Mvec,z,BehrooziFile)
     # Compute IR luminosity in Lsun
     LIR = SFR/(dMF*1e-10)
     
@@ -137,7 +151,8 @@ def TonyLi(Mvec, MLpar, z):
 
     return L
     
-def SilvaCII(Mvec, MLpar, z):
+    
+def SilvaCII(self,Mvec, MLpar, z):
     '''
     Silva et al. (2015) CII model, relates CII luminosity and SFR by
     log10(L_CII/Lsun) = a_LCII*log10(SFR/(Msun/yr)) + b_LCII
@@ -172,7 +187,8 @@ def SilvaCII(Mvec, MLpar, z):
     
     return L
     
-def FonsecaLyalpha(Mvec,MLpar,z):
+    
+def FonsecaLyalpha(self,Mvec,MLpar,z):
     '''
     Fonseca et al. 2016 model for Lyman alpha emission line. Relates Lyman alpha 
     luminosity by
@@ -206,7 +222,8 @@ def FonsecaLyalpha(Mvec,MLpar,z):
     L = SFR*K_Lyalpha
     return L.to(u.Lsun)
     
-def SilvaLyalpha_12(Mvec,MLpar,z):
+    
+def SilvaLyalpha_12(self,Mvec,MLpar,z):
     '''
     Silva et al. 2012 model for Lyman alpja emission line. Has a relation between
     L and SFR depending on z (interpolates over values).
@@ -227,9 +244,9 @@ def SilvaLyalpha_12(Mvec,MLpar,z):
     alphaint = np.array([27.8,13.,5.18,3.42])*1e-3
     betaint = np.array([0.105,0.179,0.244,0.262])
     alpha = 10**interp1d(zint,np.log10(alphaint),
-                bounds_error=False,fill_value='extrapolate')(z)
+                bounds_error=False,fill_value='extrapolate',kind='cubic')(z)
     beta = 10**interp1d(zint,np.log10(betaint),
-                bounds_error=False,fill_value='extrapolate')(z)
+                bounds_error=False,fill_value='extrapolate',kind='cubic')(z)
     fesc = np.exp(-alpha*Mvec.value**beta)
     #Luminosity due to recombinations
     Lrec = 1.55e42*(1.-fesc)*fLy*SFR/(u.Msun/u.yr)*(u.erg/u.s)
@@ -247,9 +264,8 @@ def SilvaLyalpha_12(Mvec,MLpar,z):
     
     return (Lrec+Lexc+Lcool+Lcont).to(u.Lsun)
     
-    
 
-def GongHalpha(Mvec,MLpar,z):
+def GongHalpha(self,Mvec,MLpar,z):
     '''
     Gong et al. 2016 model for Halpha emission line. Relates Halpha 
     luminosity by
@@ -266,14 +282,40 @@ def GongHalpha(Mvec,MLpar,z):
     Aext = MLpar['Aext']
     SFR_file = MLpar['SFR_file']
     
-    # Interpolate SFR from Table 2 of Silva et al. 2015
     SFR = Gong_SFR(Mvec,z,SFR_file)
 
     L = SFR*K_Halpha*10**(-Aext/2.5)
     return L.to(u.Lsun)
         
+        
+def HI_lowz_Villaescusa(self,Mvec, MLpar, z):
+    '''
+    Fitting function to M_HI(M_h) from Villaescusa-Navarro et al. 2018
+    using their FOF halos.
+    Note that mass quantities are given in Msun/h
     
-def MHI_21cm(Mvec, MLpar, z):
+    M_HI(M,z) = M_0*(M/Mmin)^z*exp(-(Mmin/M)^0.35)
+    '''
+    zint = np.array([0.,1.,2.,3.,4.,5.])
+    alphaint = np.array([0.24,0.53,0.60,0.76,0.79,0.74])
+    M0int = np.array([4.3,1.5,1.3,0.29,0.14,0.19])*1e10
+    Mminint = np.array([20.,6.,3.6,0.67,0.21,0.20])*1e11
+    
+    alpha = interp1d(zint,alphaint,kind='cubic',
+                    bounds_error=False,fill_value=alphaint[-1])(z)
+    M0 = (interp1d(zint,M0int,kind='cubic',
+                    bounds_error=False,fill_value=M0int[-1])(z)*self.Msunh).to(u.Msun)
+    Mmin = (interp1d(zint,Mminint,kind='cubic',
+                    bounds_error=False,fill_value=Mminint[-1])(z)*self.Msunh).to(u.Msun)
+                  
+    M_HI = M0*(Mvec/Mmin)**alpha*np.exp(-(Mmin/Mvec)**0.35)
+    
+    CLM = 6.215e-9*u.Lsun/u.Msun # Conversion factor btw MHI and LHI
+    L = CLM*M_HI
+    return L
+    
+    
+def MHI_21cm_Obuljen(self,Mvec, MLpar, z):
     '''
     Obuljen et al. (2018) 21cm MHI(M) model, relates MHI to halo mass by
     MHI = M0 * (M/Mmin)^alpha * exp(-Mmin/M)
@@ -303,7 +345,8 @@ def MHI_21cm(Mvec, MLpar, z):
     L = CLM*MHI
     return L
     
-def Constant_L(Mvec, MLpar, z):
+    
+def Constant_L(self,Mvec, MLpar, z):
     '''
     Model where every halo has a constant luminosity independent of mass.
     Still has cutoffs at Mcut_min and Mcut_max.
@@ -324,15 +367,83 @@ def Constant_L(Mvec, MLpar, z):
     
     return L0*np.ones(Mvec.size)
     
+    
+def DM_decay(self,Mvec,MLpar,z):
+    '''
+    Model where bosonic DM decays in haloes and we observe such radiation.
+    It assumes a NFW profile for the DM halo density,
+    and integrates the volume of the DM halo up to R_200.
+    
+    The DM mass is given by the input frequency chosen
+    
+    Follows formalism discussed in arXiv:20xx.xxxxx
+    
+    Parameters:
+    
+    f_gamma:            Branching ratio for DM decaying into photons
+    f_escape:           Fraction of escaping photons
+    f_chi:              Fraction of DM that decays
+    Gamma_chi:          DM decay rate
+    XXX??
+    
+    '''
+    f_gamma = MLpar['f_gamma']
+    f_escape = MLpar['f_escape']
+    f_chi = MLpar['f_chi']
+    Gamma_chi = MLpar['Gamma_chi'].to(u.s**-1)
+    if 'estimulated' in MLpar:
+        if MLpar['estimulated']:
+            make_est = 1.
+        else:
+            make_est = 0.
+    else:
+        make_est = 1.
+    
+    T0 = 2.725*u.K
+    exparg_CMB = (cu.h*self.nuObs/(cu.k_B*T0)).decompose()
+    F_gamma_CMB = (np.exp(exparg_CMB)-1.)**-1
+    
+    #Add all background radiation contributions to stimulation
+    F_gamma = make_est*(F_gamma_CMB) #+ ... 
+    
+    #smaller sampling of M
+    Mint = ulogspace(Mvec[0],Mvec[-1],256)
+    Delta = 200.
+    rho_c = (2.77536627e11*self.Msunh*self.Mpch**-3).to(u.Msun*u.Mpc**-3)*(1.+z)**3.
+    nr = 512
+    R_NFW = (3.*Mint/(4.*np.pi*Delta*rho_c))**(1./3.) #Radii of the SO collapsed (assuming 200*rho_crit)
+    r = np.zeros((len(Mint),nr))
+    for iM in range(len(Mint)):
+        r[iM,:] = np.logspace(-6,np.log10(R_NFW[iM].value),nr)
+    r *= R_NFW.unit
+    #get rho_s (characteristic density)
+    cNFW = interp1d(np.log10(self.M.value),self.c_NFW,bounds_error=False,
+                    fill_value='extrapolate')(np.log10(Mint.value))
+    gc = np.log(1+cNFW)-cNFW/(1.+cNFW)
+    rho_s = np.tile(Delta*rho_c*cNFW**3/3./gc,(nr,1)).T
+    #get characteristic radius
+    r_s = np.tile(R_NFW/cNFW,(nr,1)).T
+
+    rho = rho_s*r_s**3/(r*(r+r_s)**2)
+
+    int_of_M = np.trapz(r**2*rho,r)
+    Lint = (4.*np.pi*cu.c**2.*f_gamma*f_escape*f_chi*Gamma_chi*
+                (1.+2.*F_gamma)*int_of_M).to(u.Lsun)
+    L = 10**interp1d(np.log10(Mint.value),np.log10(Lint.value),
+                    bounds_error=False,fill_value=0.)(np.log10(Mvec.value))*Lint.unit
+    return L
+    
+    
 
 ###################
 # Other functions #
 ###################
-def Behroozi_SFR(BehrooziFile, M, z):
+def Behroozi_SFR(M, z, BehrooziFile):
     '''
     Returns SFR(M,z) interpolated from Behroozi et al.
     '''
-    x = np.loadtxt(BehrooziFile)
+    SFR_folder = os.path.dirname(os.path.realpath(__file__)).split("source")[0]+'SFR_tables/'
+    x = np.loadtxt(SFR_folder+BehrooziFile)
     zb = np.unique(x[:,0])-1.
     logMb = np.unique(x[:,1])
     logSFRb = x[:,2].reshape(137,122,order='F')
@@ -354,16 +465,18 @@ def Silva_SFR(M,z,SFR_file):
     '''
     Returns SFR(M,z) interpolated from values in Table 2 of Silva et al. 2015
     '''
-    x = np.loadtxt(SFR_file)
+    SFR_folder = os.path.dirname(os.path.realpath(__file__)).split("source")[0]+'SFR_tables/'
+    x = np.loadtxt(SFR_folder+SFR_file)
     
     z0 = x[0,:]
-    M0 = interp1d(z0,x[1,:])(z)*u.Msun/u.yr
-    Ma = interp1d(z0,x[2,:])(z)*u.Msun
-    Mb = interp1d(z0,x[3,:])(z)*u.Msun
-    a = interp1d(z0,x[4,:])(z)
-    b = interp1d(z0,x[5,:])(z)
+    M0 = interp1d(z0,x[1,:],bounds_error=False,fill_value='extrapolate')(z)*u.Msun/u.yr
+    Ma = interp1d(z0,x[2,:],bounds_error=False,fill_value='extrapolate')(z)*u.Msun
+    Mb = interp1d(z0,x[3,:],bounds_error=False,fill_value='extrapolate')(z)*u.Msun
+    a = interp1d(z0,x[4,:],bounds_error=False,fill_value='extrapolate')(z)
+    b = interp1d(z0,x[5,:],bounds_error=False,fill_value='extrapolate')(z)
     
     return M0*(M/Ma)**a*(1+M/Mb)**b
+    
     
 def Gong_SFR(M,z,SFR_file):
     '''
@@ -371,7 +484,8 @@ def Gong_SFR(M,z,SFR_file):
     '''
     if z >= 5.:
         return np.zeros(len(M))*u.Msun/u.yr
-    x = np.loadtxt(SFR_file)
+    SFR_folder = os.path.dirname(os.path.realpath(__file__)).split("source")[0]+'SFR_tables/'
+    x = np.loadtxt(SFR_folder+SFR_file)
     
     z0 = x[:,0]
     a = interp1d(z0,x[:,1],bounds_error=False,fill_value='extrapolate')(z)
@@ -390,12 +504,14 @@ def Gong_SFR(M,z,SFR_file):
     SFR[M>Mlim] = SFR[M<=Mlim][-1]
     return SFR
 
+
 def Fonseca_SFR(M,z,SFR_file):
     '''
     Returns SFR(M,z) interpolated from values in Table 1 of Fonseca et al. 2016
     '''
 
-    x = np.loadtxt(SFR_file)
+    SFR_folder = os.path.dirname(os.path.realpath(__file__)).split("source")[0]+'SFR_tables/'
+    x = np.loadtxt(SFR_folder+FR_file)
     
     z0 = x[:,0]
     M0 = interp1d(z0,x[:,1],bounds_error=False,fill_value='extrapolate')(z)
