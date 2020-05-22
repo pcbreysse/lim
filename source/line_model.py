@@ -505,7 +505,7 @@ class LineModel(object):
         return np.tile(fz*factor,(self.nmu,1))
 
                    
-    @cached_property
+    @cached_cosmo_property
     def Dgrowth(self):
         '''
         Get the growth factor (for matter) as function of z
