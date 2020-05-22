@@ -3,11 +3,11 @@ Primary module for interacting with the lim package
 '''
 
 import numpy as np
-import params as params_file
-from line_model import LineModel
-from line_obs import LineObs
+import source.params as params_file
+from source.line_model import LineModel
+from source.line_obs import LineObs
 #from limlam import LimLam, set_sim_cosmo
-from _utils import get_default_params
+from source.tools._utils import get_default_params,check_invalid_params
 
 
 def lim(model_params='default_par',doObs=True,doSim=False,match_sim_cosmo=True):
@@ -63,6 +63,17 @@ def lim(model_params='default_par',doObs=True,doSim=False,match_sim_cosmo=True):
     else:
         raise ValueError('model_params must be a str or dict')
         
+    #Check whether there is any parameter wrong
+    defpars = get_default_params(LineModel.__init__)
+    x1 = get_default_params(LineObs.__init__)
+    defpars.update(x1)
+    #manually entering LimLam parameters
+    x2 = dict(catalogue_file = 
+                  'limlam_mocker/catalogues/default_catalogue.npz',
+                  # Location of peak-patch catalog file
+              map_output_file = 'limlam_output.npz') # Output file location)
+    defpars.update(x2)
+    check_invalid_params(params,defpars)
     par1 = remove_invalid_params(params,doObs,doSim)
     
     if doObs:
@@ -77,7 +88,7 @@ def lim(model_params='default_par',doObs=True,doSim=False,match_sim_cosmo=True):
     else:
         if doSim:
             print('Simulations require doObs=True')
-        return LineModel(**par1)
+        return LineModel(**par1)        
         
 def remove_invalid_params(params,doObs,doSim):
     '''

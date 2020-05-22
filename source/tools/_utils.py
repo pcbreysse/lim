@@ -3,17 +3,12 @@ Miscellaneous utilities for LIM code
 '''
 import numpy as np
 from astropy.units.quantity import Quantity
-from astropy.cosmology.core import FlatLambdaCDM
 import inspect
 import astropy.units as u
 
-import luminosity_functions as lf
-import mass_luminosity as ml
-import bias_fitting_functions as bm
-
-import matplotlib
-import matplotlib.pyplot as plt
-import matplotlib.colors as colors
+import source.mass_luminosity as ml
+import source.bias_fitting_functions as bm
+import source.halo_mass_functions as HMF
 
 from scipy.interpolate import interp1d
 
@@ -38,6 +33,75 @@ class cached_property(object):
         res = instance.__dict__[self.func.__name__] = self.func(instance)
         return res
         
+class cached_cosmo_property(object):
+    """
+    From github.com/Django, who wrote a much better version of this than
+    the one I had previously.
+    
+    Decorator that converts a self.func with a single self argument into a
+    property cached on the instance.
+    
+    Same as cached_property, but for the cosmological quantities
+    """
+    def __init__(self, func):
+        self.func = func
+
+    def __get__(self, instance, type=None):
+        if instance is None:
+            return self
+        
+        # ADDED THIS CODE TO LIST PROPERTY FOR UPDATING
+        instance._update_cosmo_list.append(self.func.__name__)
+        
+        res = instance.__dict__[self.func.__name__] = self.func(instance)
+        return res
+        
+class cached_obs_property(object):
+    """
+    From github.com/Django, who wrote a much better version of this than
+    the one I had previously.
+    
+    Decorator that converts a self.func with a single self argument into a
+    property cached on the instance.
+    
+    Same as cached_property but for observational functions
+    """
+    def __init__(self, func):
+        self.func = func
+
+    def __get__(self, instance, type=None):
+        if instance is None:
+            return self
+        
+        # ADDED THIS CODE TO LIST PROPERTY FOR UPDATING
+        instance._update_obs_list.append(self.func.__name__)
+        
+        res = instance.__dict__[self.func.__name__] = self.func(instance)
+        return res
+        
+class cached_vid_property(object):
+    """
+    From github.com/Django, who wrote a much better version of this than
+    the one I had previously.
+    
+    Decorator that converts a self.func with a single self argument into a
+    property cached on the instance.
+    
+    Same as cached_property but for vid functions
+    """
+    def __init__(self, func):
+        self.func = func
+
+    def __get__(self, instance, type=None):
+        if instance is None:
+            return self
+        
+        # ADDED THIS CODE TO LIST PROPERTY FOR UPDATING
+        instance._update_vid_list.append(self.func.__name__)
+        
+        res = instance.__dict__[self.func.__name__] = self.func(instance)
+        return res
+        
 def get_default_params(func):
     '''
     Gets the default parameters of a function as input to check_params. Output
@@ -56,7 +120,21 @@ def get_default_params(func):
     default_params = dict(zip(param_names,default_values))
 
     return default_params
-    
+
+        
+#########################################
+# Check input params to avoid confusion #
+#########################################
+
+def check_invalid_params(input_params,default_params):
+    '''
+    Function to raise error if any input parameter does not coincide with 
+    existing parameters
+    '''
+    for key in input_params:
+        if key not in default_params:
+            raise ValueError(key+" is not a valid input parameter for lim. Check your input, please.")
+    return 
         
 def check_params(input_params, default_params):
     '''
@@ -75,13 +153,7 @@ def check_params(input_params, default_params):
         # Check if input has the correct type
         if type(input_value)!=type(default_value):
             # Some inputs can have multiple types
-            if key=='cosmo_model':
-                if type(input_value)==FlatLambdaCDM:
-                    pass
-                else:
-                    raise(TypeError(
-                      "Parameter cosmo_model must be a str or FlatLambdaCDM"))
-            elif key=='scatter_seed':
+            if key=='scatter_seed':
                 if type(input_value)==int or type(input_value)==float:
                     pass
                 
@@ -112,7 +184,6 @@ def check_params(input_params, default_params):
             # model_type can only be ML or LF
             raise ValueError("model_type must be either 'ML' or 'LF' ot 'TOY' ")
             
-            
 def check_model(model_type,model_name):
     '''
     Check if model given by model_name exists in the given model_type
@@ -135,12 +206,19 @@ def check_model(model_type,model_name):
             
 def check_bias_model(bias_name):
     '''
-    Check if model given by model_name exists in the given model_type
+    Check if model given by bias_model exists in the given model_type
     '''
     if not hasattr(bm,bias_name):
         raise ValueError(bias_name+
                     " not found in bias_fitting_functions.py")
-
+                    
+def check_halo_mass_function_model(hmf_model):
+    '''
+    Check if model given by hmf_model exists in the given model_type
+    '''
+    if not hasattr(HMF,hmf_model):
+        raise ValueError(hmf_model+
+                    " not found in halo_mass_functions.py")
                                 
 def ulogspace(xmin,xmax,nx):
     '''
@@ -163,17 +241,64 @@ def ulinspace(xmin,xmax,nx):
     return np.linspace(xmin.value,xmax.value,nx)*xmin.unit
 
 
-def log_interp1d(xx, yy, kind='linear',bounds_error=False,fill_value=0.):
+def log_interp1d(xx, yy, kind='linear',bounds_error=False,fill_value='extrapolate'):
+    '''
+    Logarithmic interpolation accepting linear quantities as input (transformed
+    within the function)
+    '''
+    ind = np.where(yy>0)
     try:
-        logx = np.log10(xx.value)
+        logx = np.log10(xx[ind].value)
     except:
-        logx = np.log10(xx)
+        logx = np.log10(xx[ind])
     try:
-        logy = np.log10(yy.value)
+        logy = np.log10(yy[ind].value)
     except:
-        logy = np.log10(yy)
+        logy = np.log10(yy[ind])
     lin_interp = interp1d(logx, logy, kind=kind,bounds_error=bounds_error,fill_value=fill_value)
     
     log_interp = lambda zz: np.power(10.0, lin_interp(np.log10(zz)))
 
     return log_interp
+
+def save_in_file(name, lis):
+    '''
+    Save the list (i.e. [k, Pk, sk]) in a file with path 'name'
+    Arguments: name = <path>, lis = <what to save>
+    '''
+    LEN = len(lis[0])
+    lenlis = len(lis)
+    for i in range(1, lenlis):
+        if len(lis[i]) != LEN:
+            raise Exception('ALL items in the list to save MUST be 1d arrays with the same length!')
+    
+    MAT = np.zeros((LEN,lenlis))
+    header = 'Units::   '
+    for i in range(0,lenlis):
+        MAT[:,i] = lis[i].value
+        header += str(lis[i].unit)+'\t || '
+
+    np.savetxt(name,MAT,header=header)
+    return
+
+def from_Tb_to_Inu(Tb,nuObs,beam_width):
+    '''
+    Transforms brightness temperature into intensity (output in Jy/sr)
+    '''
+    return (Tb*2.*cu.k_B*nuObs**2/((beam_width**2).to(u.sr)*cu.c**2)).to(u.Jy/u.sr)
+    
+def from_Inu_to_Tb(Inu,nuObs,beam_width):
+    '''
+    Transforms intensity into brightness temperature (output in uK)
+    '''
+    return (Inu*cu.c**2/(2.*cu.k_B*nuObs**2)*(beam_width**2).to(u.sr)).to(u.uK)
+
+
+def merge_dicts(D):
+    '''
+    Merges dictionaries input in list D
+    '''
+    dic = {}
+    for k in D:
+        dic.update(k)
+    return dic
