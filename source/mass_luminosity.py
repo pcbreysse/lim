@@ -511,7 +511,7 @@ def Fonseca_SFR(M,z,SFR_file):
     '''
 
     SFR_folder = os.path.dirname(os.path.realpath(__file__)).split("source")[0]+'SFR_tables/'
-    x = np.loadtxt(SFR_folder+FR_file)
+    x = np.loadtxt(SFR_folder+SFR_file)
     
     z0 = x[:,0]
     M0 = interp1d(z0,x[:,1],bounds_error=False,fill_value='extrapolate')(z)
