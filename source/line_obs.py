@@ -235,7 +235,7 @@ class LineObs(LineModel):
         Noise power spectrum amplitude
         '''
         if self.do_Jysr:
-            return self.sigma_N**2*self.Vvox/(self.tpix*self.Nfeeds)
+            return (self.sigma_N**2*self.Vvox/(self.tpix*self.Nfeeds)).to(u.Mpc**3*u.Jy**2/u.sr**2)
         else:
             return self.sigma_N**2*self.Vvox
             
