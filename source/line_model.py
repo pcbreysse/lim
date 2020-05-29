@@ -285,6 +285,8 @@ class LineModel(object):
             self.camb_pars.Transfer.accurate_massive_neutrinos = True
                 
         elif self.cosmo_code == 'class':
+            if not 'f_NL' in self.cosmo_input_class:
+                self.cosmo_input_class['f_NL'] = 0.
             pk_pars = {}
             if not ('P_k_max_1/Mpc' in self.cosmo_input_class or 'P_k_max_h/Mpc' in self.cosmo_input_class):
                 pk_pars['P_k_max_1/Mpc'] = 100
@@ -299,8 +301,7 @@ class LineModel(object):
                 pk_pars['non linear'] = 'HMCODE'
 
             self.class_pars = merge_dicts([self.cosmo_input_class,pk_pars])
-            if 'f_NL' in self.class_pars:
-                del self.class_pars['f_NL']
+            del self.class_pars['f_NL']
             if 'output' not in self.class_pars:
                 self.class_pars['output'] = 'mPk,mTk'
             else:
