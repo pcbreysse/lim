@@ -365,74 +365,7 @@ def Constant_L(self,Mvec, MLpar, z):
     
     L0 = MLpar['L0']
     
-    return L0*np.ones(Mvec.size)
-    
-    
-def DM_decay(self,Mvec,MLpar,z):
-    '''
-    Model where bosonic DM decays in haloes and we observe such radiation.
-    It assumes a NFW profile for the DM halo density,
-    and integrates the volume of the DM halo up to R_200.
-    
-    The DM mass is given by the input frequency chosen
-    
-    Follows formalism discussed in arXiv:20xx.xxxxx
-    
-    Parameters:
-    
-    f_gamma:            Branching ratio for DM decaying into photons
-    f_escape:           Fraction of escaping photons
-    f_chi:              Fraction of DM that decays
-    Gamma_chi:          DM decay rate
-    XXX??
-    
-    '''
-    f_gamma = MLpar['f_gamma']
-    f_escape = MLpar['f_escape']
-    f_chi = MLpar['f_chi']
-    Gamma_chi = MLpar['Gamma_chi'].to(u.s**-1)
-    if 'estimulated' in MLpar:
-        if MLpar['estimulated']:
-            make_est = 1.
-        else:
-            make_est = 0.
-    else:
-        make_est = 1.
-    
-    T0 = 2.725*u.K
-    exparg_CMB = (cu.h*self.nuObs/(cu.k_B*T0)).decompose()
-    F_gamma_CMB = (np.exp(exparg_CMB)-1.)**-1
-    
-    #Add all background radiation contributions to stimulation
-    F_gamma = make_est*(F_gamma_CMB) #+ ... 
-    
-    #smaller sampling of M
-    Mint = ulogspace(Mvec[0],Mvec[-1],256)
-    Delta = 200.
-    rho_c = (2.77536627e11*self.Msunh*self.Mpch**-3).to(u.Msun*u.Mpc**-3)*(1.+z)**3.
-    nr = 512
-    R_NFW = (3.*Mint/(4.*np.pi*Delta*rho_c))**(1./3.) #Radii of the SO collapsed (assuming 200*rho_crit)
-    r = np.zeros((len(Mint),nr))
-    for iM in range(len(Mint)):
-        r[iM,:] = np.logspace(-6,np.log10(R_NFW[iM].value),nr)
-    r *= R_NFW.unit
-    #get rho_s (characteristic density)
-    cNFW = interp1d(np.log10(self.M.value),self.c_NFW,bounds_error=False,
-                    fill_value='extrapolate')(np.log10(Mint.value))
-    gc = np.log(1+cNFW)-cNFW/(1.+cNFW)
-    rho_s = np.tile(Delta*rho_c*cNFW**3/3./gc,(nr,1)).T
-    #get characteristic radius
-    r_s = np.tile(R_NFW/cNFW,(nr,1)).T
-
-    rho = rho_s*r_s**3/(r*(r+r_s)**2)
-
-    int_of_M = np.trapz(r**2*rho,r)
-    Lint = (4.*np.pi*cu.c**2.*f_gamma*f_escape*f_chi*Gamma_chi*
-                (1.+2.*F_gamma)*int_of_M).to(u.Lsun)
-    L = 10**interp1d(np.log10(Mint.value),np.log10(Lint.value),
-                    bounds_error=False,fill_value=0.)(np.log10(Mvec.value))*Lint.unit
-    return L
-    
+    return L0*np.ones(Mvec.size)    
     
 
 ###################
