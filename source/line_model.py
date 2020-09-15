@@ -485,8 +485,6 @@ class LineModel(object):
         if mnu = 0: f_eff = f_m; if mnu > 0: f_eff = f_cb
         '''
         dz = 1e-4
-        a_down = 1./(1.+self.z+dz)
-        a_up = 1./(1.+self.z-dz)
         if self.cosmo_code == 'camb':
             fs8lin = self.cosmo.get_fsigma8()
             s8lin = self.cosmo.get_sigma8()
