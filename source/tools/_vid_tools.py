@@ -3,6 +3,7 @@ Miscellaneous functions for VID and CVID calculations
 '''
 
 import numpy as np
+import scipy as sp
 import astropy.units as u
 from scipy.integrate import quad
 from scipy.interpolate import interp1d
@@ -85,14 +86,14 @@ def PT_add_signal(P1,P2,T,dT,do_fast_VID):
     observed signal
     '''
     if do_fast_VID:
-        fP1 = np.fft.fft(P1)*dT
+        fP1 = sp.fft.fft(P1)*dT
         fP1 = ((fP1*P1.unit).decompose()).value 
-        fP2 = np.fft.fft(P2)*dT
+        fP2 = sp.fft.fft(P2)*dT
         fP2 = ((fP2*P2.unit).decompose()).value
         
         jointfP = fP1*fP2
         
-        return ((np.fft.ifft(jointfP)/dT).real) 
+        return ((sp.fft.ifft(jointfP)/dT).real) 
     else:
         return conv_parallel(T,P1,T,P2,T)
     
