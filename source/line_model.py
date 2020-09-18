@@ -708,45 +708,20 @@ class LineModel(object):
         if self.model_type=='LF':
             return getattr(lf,self.model_name)(self.L,self.model_par)
         else:
-            # Check if L(M) is monotonic
-            if not np.all(np.diff(self.LofM)>=0):
-                raise ValueError('For now, dndL is only available for ML '+
-                        'models where L(M) is monotnoically increasing')
-            # Compute masses corresponding to input luminosities
-            MofL = (log_interp1d(self.LofM,self.M,bounds_error=False,fill_value=0.)
-                    (self.L.value)*self.M.unit)
-            # Mass function at these masses
-            dndM_MofL = log_interp1d(self.M,self.dndM,bounds_error=False,
-                            fill_value=0.)(MofL.value)*self.dndM.unit
-            # Derivative of L(M) w.r.t. M
-            dM = MofL*1.e-5
-            L_p = getattr(ml,self.model_name)(self,MofL+dM,self.model_par,self.z)
-            L_m = getattr(ml,self.model_name)(self,MofL-dM,self.model_par,self.z)
-            dLdM = (L_p-L_m)/(2*dM)
-            
-            dndL = dndM_MofL/dLdM
-            
-            # Cutoff M>Mmax and M<Mmin
-            dndL[MofL<self.Mmin] = 0.*dndL.unit
-            dndL[MofL>self.Mmax] = 0.*dndL.unit
-            
-            # Include scatter
-            if self.sigma_scatter>0.:
-                s = self.sigma_scatter
-                # Mean-preserving scatter PDF:
-                P_scatter = (lambda x:
-                    (np.exp(-(np.log(x)+s**2/2.)**2/(2*s**2))/
-                     (x*s*np.sqrt(2*np.pi))))
-                
-                dndL_s = np.zeros(dndL.size)*dndL.unit
-                for ii in range(0,self.nL):
-                    Li = self.L[ii]
-                    itgrnd = dndL*P_scatter(Li/self.L)/self.L
-                    dndL_s[ii] = np.trapz(itgrnd,self.L)
-                    
-                return dndL_s
-            else:
-                return dndL 
+            #compute LF from the conditional LF
+            if self.Lmin > np.min(self.LofM[self.LofM.value>0]):
+                print('Warning! reduce Lmin to cover all luminosities of the model')
+            if self.Lmax < np.max(self.LofM):
+                print('Warning! reduce Lmax to cover all luminosities of the model')
+            #assume a lognormal PDF for the CLF with minimum logscatter of 0.01
+            CLF_of_M = np.zeros((self.nM,self.nL))*self.dndM.unit*self.L.unit**-1
+            logscatter = max(self.sigma_scatter,0.01)
+            for iM in range(self.nM):
+                CLF_of_M[iM,:] = ut.lognormal(self.L,self.LofM[iM],logscatter)*self.dndM[iM]
+            LF = np.zeros(self.nL)*self.L.unit**-1*self.dndM.unit*self.M.unit
+            for iL in range(self.nL):
+                LF[iL] = np.trapz(CLF_of_M[:,iL],self.M)
+            return dndL
         
         
     @cached_property
