@@ -19,7 +19,7 @@ from classy import Class
 
 from source.tools._utils import cached_property,cached_cosmo_property,cached_vid_property,get_default_params,check_params
 from source.tools._utils import check_model,check_bias_model,check_halo_mass_function_model
-from source.tools._utils import log_interp1d,ulogspace,ulinspace,check_invalid_params,merge_dicts
+from source.tools._utils import log_interp1d,ulogspace,ulinspace,check_invalid_params,merge_dicts,lognormal
 import source.tools._vid_tools as vt
 import source.luminosity_functions as lf
 import source.mass_luminosity as ml
@@ -709,19 +709,19 @@ class LineModel(object):
             return getattr(lf,self.model_name)(self.L,self.model_par)
         else:
             #compute LF from the conditional LF
-            if self.Lmin > np.min(self.LofM[self.LofM.value>0]):
+            if self.Lmin > self.LofM[self.LofM.value>0][0]:
                 print('Warning! reduce Lmin to cover all luminosities of the model')
             if self.Lmax < np.max(self.LofM):
-                print('Warning! reduce Lmax to cover all luminosities of the model')
+                print('Warning! increase Lmax to cover all luminosities of the model')
             #assume a lognormal PDF for the CLF with minimum logscatter of 0.01
             CLF_of_M = np.zeros((self.nM,self.nL))*self.dndM.unit*self.L.unit**-1
             logscatter = max(self.sigma_scatter,0.01)
             for iM in range(self.nM):
-                CLF_of_M[iM,:] = ut.lognormal(self.L,self.LofM[iM],logscatter)*self.dndM[iM]
+                CLF_of_M[iM,:] = lognormal(self.L,self.LofM[iM],logscatter)*self.dndM[iM]
             LF = np.zeros(self.nL)*self.L.unit**-1*self.dndM.unit*self.M.unit
             for iL in range(self.nL):
                 LF[iL] = np.trapz(CLF_of_M[:,iL],self.M)
-            return dndL
+            return LF
         
         
     @cached_property
