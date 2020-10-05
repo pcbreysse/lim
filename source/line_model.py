@@ -1323,7 +1323,7 @@ class LineModel(object):
             Wk2 = Wkpar2*Wkperp2
             
             #Compute sigma_G
-            integrnd = Pk*Wk2*ki**2/(4.*np.pi**2)
+            integrnd = self.bavg**2*Pk*Wk2*ki**2/(4.*np.pi**2)
             integrnd_mu = np.trapz(integrnd,self.mu,axis=0)
             sigma = np.sqrt(np.trapz(integrnd_mu,ki[0,:]))
             
