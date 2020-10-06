@@ -71,6 +71,8 @@ default_par = dict(
               tobs = 6000*u.hr,    # Observing time per field
               Omega_field = 2.25*u.deg**2,     # Solid angle of single field
               Nfield = 1,    # Number of fields to be observed
+              N_FG_par = 1, #Foreground multiplicative number to kmin_par in window
+              N_FG_perp = 1, #Foreground multiplicative number to kmin_perp in window
               # PARAMETERS USED FOR LIMLAM SIMULATIONS
               catalogue_file = 
                   'limlam_mocker/catalogues/default_catalogue.npz',
