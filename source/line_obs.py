@@ -48,6 +48,14 @@ class LineObs(LineModel):
     
     Nfield:         Number of fields observed (Default = 1)
     
+    N_FG_par:       Multiplicative factor in the volume window for kmin_par
+                    to account for foregrounds. Default = 1, No foregrounds
+                    (only volume effects)
+                    
+    N_FG_perp:      Multiplicative factor in the volume window for kmin_perp
+                    to account for foregrounds. Default = 1, No foregrounds
+                    (only volume effects)
+    
     **line_kwargs:  Input parameters of LineModel()
     
     DOCTESTS:
@@ -75,6 +83,8 @@ class LineObs(LineModel):
                  tobs=6000*u.hr, 
                  Omega_field=2.25*u.deg**2,
                  Nfield=1,
+                 N_FG_par = 1,
+                 N_FG_perp = 1,
                  **line_kwargs):
                     
         # Initiate LineModel() parameters
@@ -334,7 +344,7 @@ class LineObs(LineModel):
         '''
         Precision cutoff in power spectrum due to volume observed in los direction
         '''
-        exparg = -((self.k_par/self.kmin_los)**2).decompose()
+        exparg = -((self.k_par/(self.N_FG_par*self.kmin_los))**2).decompose()
         return 1.-np.exp(exparg)
         
         
@@ -343,7 +353,7 @@ class LineObs(LineModel):
         '''
         Precision cutoff in power spectrum due to volume observed in transverse direction
         '''
-        exparg = -((self.k_perp/self.kmin_sky)**2).decompose()
+        exparg = -((self.k_perp/(self.N_FG_perp*self.kmin_sky))**2).decompose()
         return 1.-np.exp(exparg)
         
         
