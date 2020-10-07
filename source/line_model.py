@@ -1323,7 +1323,11 @@ class LineModel(object):
             Wk2 = Wkpar2*Wkperp2
             
             #Compute sigma_G
-            integrnd = self.bavg**2*Pk*Wk2*ki**2/(4.*np.pi**2)
+            if self.f_NL == 0:
+                bias = self.bavg[-1]
+            else:
+                bias = interp1d(self.k,self.bavg,kind='linear',bounds_error=False,fill_value=[self.bavg[0],self.bavg[-1])
+            integrnd = bias**2*Pk*Wk2*ki**2/(4.*np.pi**2)
             integrnd_mu = np.trapz(integrnd,self.mu,axis=0)
             sigma = np.sqrt(np.trapz(integrnd_mu,ki[0,:]))
             
