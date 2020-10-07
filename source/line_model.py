@@ -963,7 +963,7 @@ class LineModel(object):
         if self.model_type == 'TOY':
             dc = 1.686
             Delta_b = 0.
-            b_line = self.model_par['bmean']
+            b_line = self.model_par['bmean']*np.ones(self.nk)
             if self.f_NL != 0:
                 #get the transfer function, depending on whether mnu = 0 or mnu > 0
                 if self.cosmo_code == 'camb':
