@@ -300,17 +300,21 @@ def HI_lowz_Villaescusa(self,Mvec, MLpar, z):
     alphaint = np.array([0.24,0.53,0.60,0.76,0.79,0.74])
     M0int = np.array([4.3,1.5,1.3,0.29,0.14,0.19])*1e10
     Mminint = np.array([20.,6.,3.6,0.67,0.21,0.20])*1e11
+    Mmaxint = np.array([35.,10.,3.,1.6,0.63,0.26])*1e13
     
-    alpha = interp1d(zint,alphaint,kind='cubic',
+    alpha = interp1d(zint,alphaint,kind='linear',
                     bounds_error=False,fill_value=alphaint[-1])(z)
-    M0 = (interp1d(zint,M0int,kind='cubic',
+    M0 = (interp1d(zint,M0int,kind='linear',
                     bounds_error=False,fill_value=M0int[-1])(z)*self.Msunh).to(u.Msun)
-    Mmin = (interp1d(zint,Mminint,kind='cubic',
+    Mmin = (interp1d(zint,Mminint,kind='linear',
                     bounds_error=False,fill_value=Mminint[-1])(z)*self.Msunh).to(u.Msun)
+    Mmax = (interp1d(zint,Mmaxint,kind='linear',
+                    bounds_error=False,fill_value=Mmaxint[-1])(z)*self.Msunh).to(u.Msun)
                   
     M_HI = M0*(Mvec/Mmin)**alpha*np.exp(-(Mmin/Mvec)**0.35)
+    M_HI[Mvec >= Mmax] = 0
     
-    CLM = 6.215e-9*u.Lsun/u.Msun # Conversion factor btw MHI and LHI
+    CLM = 6.25e-9*u.Lsun/u.Msun # Conversion factor btw MHI and LHI
     L = CLM*M_HI
     return L
     
@@ -339,12 +343,43 @@ def MHI_21cm_Obuljen(self,Mvec, MLpar, z):
     Mmin = MLpar['Mmin']
     alpha = MLpar['alpha']
     
-    CLM = 6.215e-9*u.Lsun/u.Msun # Conversion factor btw MHI and LHI
+    CLM = 6.25e-9*u.Lsun/u.Msun # Conversion factor btw MHI and LHI
     
     MHI = M0*(Mvec/Mmin)**alpha*np.exp(-Mmin/Mvec)
     L = CLM*MHI
     return L
     
+
+def MHI_21cm_Padmanabhan(self,Mvec, MLpar, z):
+    '''
+    Padmamabhan & Kulkarni 2017 21cm MHI(M) model, relates MHI to halo mass by
+    MHI = 2*N*M/((M/M1)^-b1+(M/M1)^y1)
+    
+    where N, M0, b and y are free parameters fit to observations as function 
+    of redshift. We use the best fit here
+    '''
+    #Values at z=0
+    M10 = 4.58e11*u.Msun
+    N10 = 9.89e-3
+    b10 = 0.9
+    y10=0.74
+    #z evolution params
+    M11 = 1.56
+    N11 = 0.009
+    b11 = -1.08
+    y11 = 4.07
+    #z evolution
+    M1 = 10**(np.log10(M10/u.Msun)+z/(z+1)*M11)*u.Msun
+    N1 = N10+z/(z+1)*N11
+    b1 = b10+z/(z+1)*b11
+    y1 = y10+z/(z+1)*y11
+    
+    MHI = 2*N1*Mvec*((Mvec/M1)**-b1+(Mvec/M1)**y1)**-1
+    
+    CLM = 6.25e-9*u.Lsun/u.Msun # Conversion factor btw MHI and LHI
+    L = CLM*MHI
+    return L
+        
     
 def Constant_L(self,Mvec, MLpar, z):
     '''
