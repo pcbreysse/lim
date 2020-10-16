@@ -73,6 +73,9 @@ default_par = dict(
               Nfield = 1,    # Number of fields to be observed
               N_FG_par = 1, #Foreground multiplicative number to kmin_par in window
               N_FG_perp = 1, #Foreground multiplicative number to kmin_perp in window
+              do_FG_wedge = False, #Apply foreground wedge removal
+              a_FG = 0, #Constat superhorizon buffer for foregrounds
+              b_FG = 0, #Foreground parameter accounting for antenna chromaticity
               # PARAMETERS USED FOR LIMLAM SIMULATIONS
               catalogue_file = 
                   'limlam_mocker/catalogues/default_catalogue.npz',
