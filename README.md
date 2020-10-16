@@ -18,6 +18,10 @@ lim is a python application designed to analytically compute various statistics 
 - In the case of massive neutrinos, work with quantities related with the cdm+b distribution (all matter but neutrinos)
 
 - Implementation of concentration-mass relation from Diemer & Joyce (2019)
+
+- New astrophysical models
+
+- Possibility of applying foreground wedge removal or a more limitting volume window due to foregrounds
     
 - Reorganization of the directories to organize the modules.
 
