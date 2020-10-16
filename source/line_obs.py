@@ -55,6 +55,12 @@ class LineObs(LineModel):
     N_FG_perp:      Multiplicative factor in the volume window for kmin_perp
                     to account for foregrounds. Default = 1, No foregrounds
                     (only volume effects)
+                    
+    do_FG_wedge:    Apply foreground wedge removal. Default = False
+    
+    a_FG:           Constant superhorizon buffer for foregrounds. Default = 0
+    
+    b_FG:           Foreground parameter accounting for antenna chromaticity. Default = 0 
     
     **line_kwargs:  Input parameters of LineModel()
     
@@ -85,6 +91,9 @@ class LineObs(LineModel):
                  Nfield=1,
                  N_FG_par = 1,
                  N_FG_perp = 1,
+                 do_FG_wedge = False,
+                 a_FG = 0,
+                 b_FG = 0,
                  **line_kwargs):
                     
         # Initiate LineModel() parameters
@@ -363,6 +372,22 @@ class LineObs(LineModel):
         Precision cutoff in power spectrum due to volume observed
         '''
         return self.Wkmin_par*self.Wkmin_perp
+        
+    
+    @cached_obs_property
+    def Wk_FGwedge(self):
+        '''
+        Applies foreground wedge removal
+        '''
+        W = np.ones(self.ki_grid.shape)
+        if self.do_FG_wedge:
+            #k_par_min = a + b*k_perp
+            kpar_min_wedge = self.a_FG.to(self.k.unit) + self.b_FG*np.abs(self.k_perp)
+            ind = np.where(np.abs(self.k_par)<kpar_min_wedge)
+            W[ind] = 0
+            return W
+        else:
+            return W
         
         
     @cached_obs_property
