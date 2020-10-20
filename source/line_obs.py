@@ -92,8 +92,8 @@ class LineObs(LineModel):
                  N_FG_par = 1,
                  N_FG_perp = 1,
                  do_FG_wedge = False,
-                 a_FG = 0,
-                 b_FG = 0,
+                 a_FG = 0.*u.Mpc**-1,
+                 b_FG = 0.,
                  **line_kwargs):
                     
         # Initiate LineModel() parameters
@@ -395,7 +395,7 @@ class LineObs(LineModel):
         '''
         Resolution cutoff in power spectrum
         '''
-        return self.Wkmin*self.Wkmax
+        return self.Wkmin*self.Wkmax*self.Wk_FGwedge
 
 
     @cached_obs_property
