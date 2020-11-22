@@ -73,7 +73,7 @@ def Jenkins(self,Mvec,rhoM):
 
     return dndM
     
-def  Warren(self,Mvec,rhoM):
+def Warren(self,Mvec,rhoM):
     '''
     Warren et al. halo mass function
     '''

@@ -715,7 +715,7 @@ class LineModel(object):
                 print('Warning! increase Lmax to cover all luminosities of the model')
             #assume a lognormal PDF for the CLF with minimum logscatter of 0.01
             CLF_of_M = np.zeros((self.nM,self.nL))*self.dndM.unit*self.L.unit**-1
-            logscatter = max(self.sigma_scatter,0.01)
+            logscatter = max(self.sigma_scatter,0.05)
             for iM in range(self.nM):
                 CLF_of_M[iM,:] = lognormal(self.L,self.LofM[iM],logscatter)*self.dndM[iM]
             LF = np.zeros(self.nL)*self.L.unit**-1*self.dndM.unit*self.M.unit
