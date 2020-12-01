@@ -2,14 +2,36 @@
 
 lim is a python application designed to analytically compute various statistics of line intensity maps using a wide variety of models.  It also contains functions to generate simulated intensity maps from peak-patch simulations provided by George Stein.  This code is a work in progress, so it may change significantly and there may be undetected bugs.
 
+### Changes from previous versions
+
+- Option to use the python wrapper of class or camb. Note that the newest version of camb does not support python 2 any more. Then make sure that both class and camb versions correspond to the same python type (class wrapper can be compiled for python 3 since version 2.8).
+
+- General speed up of the code:
+    - Better managing of updates of the input parameters
+    - Variance of fluctuations and halo mass function computed internally, without relying in pylians, which is no longer needed.
+    - Precomputation of the linear matter power spectrum and other cosmological quantities for several redshifts to interpolate without the need of recomputing cosmology unless cosmological parameters are updated.
+    
+- VID located in line_model. Available for ML models with monotonically increasing L(M) relations. Added a function to add different signals to VID.
+
+- Added option to work with the non-linear power spectrum
+
+- In the case of massive neutrinos, work with quantities related with the cdm+b distribution (all matter but neutrinos)
+
+- Implementation of concentration-mass relation from Diemer & Joyce (2019)
+
+- New astrophysical models
+
+- Possibility of applying foreground wedge removal or a more limitting volume window due to foregrounds
+    
+- Reorganization of the directories to organize the modules.
+
+- Bug fixed on halo mass function computation (especifically regarding Tinker 2010)
+
+- Default cosmological values from Planck 2018 TTTEEE + lensing
+
 ### Prerequisites
 
-lim requires several packages which should be familiar to astronomers working with python, including numpy, scipy, and astropy.  It also makes substantial use of Francisco Villaescusa-Navarro's [pylians](https://github.com/franciscovillaescusa/Pylians) package, which can be download from github and installed along with its dependencies with the commands
-
-```
-cd library
-python setup.py build
-```
+lim requires several packages which should be familiar to astronomers, including numpy, scipy, and astropy.  
 
 Astropy units are used throughout this code to avoid unit conversion errors. To use the output of lim in any code which does not accept astropy units, simply replace output x with x.value.
 
@@ -19,7 +41,7 @@ Finally, lim uses the python camb wrapper to compute all needed cosmological qua
 
 ### Quickstart
 
-In the folder containing the lim functions, you can quickly get the default CO power spectrum by running in an interpreter
+After adding the lim folder to your python path, you can quickly get the default CO power spectrum by running in an interpreter
 
 ```
 from lim import lim

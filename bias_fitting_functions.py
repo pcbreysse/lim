@@ -29,7 +29,7 @@ def Tinker10(self,dc,nu):
         a = 0.44*y - 0.88
     
     return 1.- A*nu**a/(nu**a+dc**a) + B*nu**b + C*nu**c
-    #return 1.+(nu**2.-1.)/dc
+
             
 def Mo96(self,dc,nu):
     """
@@ -39,12 +39,18 @@ def Mo96(self,dc,nu):
     """
     return 1. + (nu**2.-1.)/dc
             
+            
 def Jing98(self,dc,nu):
     """
     Empirical bias of Jing (1998): http://adsabs.harvard.edu/abs/1998ApJ...503L...9J
     """
     Mh = (self.M.to(self.Msunh)).value
-    nu_star = (Mh/self.mass_non_linear)**(self.cosmo_input['ns']+3.)/6.
+    mass_non_linear = (np.argmin((self.sigmaM-1)**2.).to(self.Msunh)).value
+    if self.cosmo_code == 'camb':
+        ns = self.cosmo_input_camb['ns']
+    else:
+        ns = self.cosmo.n_s()
+    nu_star = (Mh/mass_non_linear)**(ns+3.)/6.
     if len(self.bias_par.keys()) == 0:
         a = 0.5
         b = 0.06
@@ -53,8 +59,9 @@ def Jing98(self,dc,nu):
         a = self.bias_par['a']
         b = self.bias_par['b']
         c = self.bias_par['c']
-    return (a/nu_star**4. + 1.)**(b-c*self.cosmo_input['ns']) * \
+    return (a/nu_star**4. + 1.)**(b-c*ns) * \
                 (1.+(nu_star**2. -1.)/dc)
+                             
                                 
 def ST99(self,dc,nu):
     """
@@ -69,6 +76,7 @@ def ST99(self,dc,nu):
         q = self.bias_par['q']
         p = self.bias_par['p']
     return 1. + (q*nu**2-1.)/dc + (2.*p/dc)/(1.+(q*nu**2)**p)
+            
             
 def SMT01(self,dc,nu):
     """
@@ -89,10 +97,12 @@ def SMT01(self,dc,nu):
                     (a*nu**2.)**c/((a*nu**2.)**c + \
                     b*(1.-c)*(1.-c/2.)))/(dc*sa)
                          
+                         
 def Seljak04(self,dc,nu):
     """
     Empirical bias relation from Seljak & Warren (2004), without cosmological dependence.
     """
+    mass_non_linear = (np.argmin((self.sigmaM-dc)**2.).to(self.Msunh)).value
     Mh = (self.M.to(self.Msunh)).value
     x = Mh/self.mass_non_linear
     if len(self.bias_par.keys()) == 0:
@@ -112,12 +122,14 @@ def Seljak04(self,dc,nu):
         f = self.bias_par['f']
         g = self.bias_par['g']
     return a + b*x**c + d/(e*x+1.) + f*x**g
+    
             
 def Seljak04_Cosmo(self,dc,nu):
     """
     Empirical bias relation from Seljak & Warren (2004), with cosmological dependence.
     Doesn't include the running of the spectral index alpha_s.
     """
+    mass_non_linear = (np.argmin((self.sigmaM-dc)**2.).to(self.Msunh)).value
     Mh = (self.M.to(self.Msunh)).value
     x = Mh/self.mass_non_linear
     if len(self.bias_par.keys()) == 0:
@@ -142,9 +154,23 @@ def Seljak04_Cosmo(self,dc,nu):
         a1 = self.bias_par['a1']
         a2 = self.bias_par['a2']
         a3 = self.bias_par['a3']
+    if self.cosmo_code == 'camb':
+        Om0m = self.camb_pars.omegam
+        ns = self.cosmo_input_camb['ns']
+        s8 = self.cosmo.get_sigma8_0()
+        nrun = self.cosmo_input_camb['nrun']
+    else:
+        Om0m = self.cosmo.Omega0_m()
+        ns = self.cosmo.n_s()
+        s8 = self.cosmo.sigma8()
+        try:
+            nrun = self.cosmo_input_class['alpha_s']
+        except:
+            nrun = 0.
     return a + b*x**c + d/(e*x+1.) + f*x**g + np.log10(x)*        \
-            (a1*(self.camb_pars.omegam - 0.3 + self.cosmo_input['ns'] - 1.) +   \
-            a2*(transfer.sigma_8[0]-0.9 + self.hubble - 0.7) + a4*self.cosmo_input['nrun'])
+            (a1*(Om0m - 0.3 + ns - 1.) +   \
+            a2*(self.s8-0.9 + self.hubble - 0.7) + a4*nrun)
+                   
                    
 def Tinker05(self,dc,nu):
     """
@@ -162,6 +188,7 @@ def Tinker05(self,dc,nu):
     return 1.+(sa*(a*nu**2) + sa*b*(a*nu**2)**(1.-c) - (a*nu**2)**c/((a*nu**2)**c +    \
                     b*(1.-c)*(1.-c/2.)))/(dc*sa)
             
+            
 def Mandelbaum05(self,dc,nu):
     """
     Empirical bias, same as ST99 but changed parameters
@@ -173,6 +200,7 @@ def Mandelbaum05(self,dc,nu):
         q = self.bias_par['q']
         p = self.bias_par['p']
     return 1. + (q*nu**2.-1.)/dc + (2.*p/dc)/(1.+(q*nu**2.)**p)
+            
             
 def Manera10(self,dc,nu):
     """

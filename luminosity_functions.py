@@ -4,8 +4,6 @@ Calculate line luminosity functions under different parameterizations
 All functions take a vector of luminosities in L_sun and return dn/dL in
 (Mpc/h)^-3 L_sun^-1
 
-TODO:
-Add in models from Matlab code, code to compute dn/dL from L(M)
 """
 
 import numpy as np

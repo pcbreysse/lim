@@ -3,6 +3,7 @@ Miscellaneous functions for VID and CVID calculations
 '''
 
 import numpy as np
+import scipy as sp
 import astropy.units as u
 from scipy.integrate import quad
 from scipy.interpolate import interp1d
@@ -79,6 +80,23 @@ def pdf_to_histogram(T,PT,Tedge,Nvox,Tmean_sub,PT_zero):
     
     return h
     
+def PT_add_signal(P1,P2,T,dT,do_fast_VID):
+    '''
+    Combine two different VID (e.g., signal and noise) to obtain the total 
+    observed signal
+    '''
+    if do_fast_VID:
+        fP1 = sp.fft.fft(P1)*dT
+        fP1 = ((fP1*P1.unit).decompose()).value 
+        fP2 = sp.fft.fft(P2)*dT
+        fP2 = ((fP2*P2.unit).decompose()).value
+        
+        jointfP = fP1*fP2
+        
+        return ((sp.fft.ifft(jointfP)/dT).real) 
+    else:
+        return conv_parallel(T,P1,T,P2,T)
+    
 def conv_bruteforce(x1,y1,x2,y2,x):
     '''
     Brute-force numerical convolution between functions y1(x1) and y2(x2)
@@ -99,7 +117,6 @@ def conv_bruteforce(x1,y1,x2,y2,x):
         y = 0.
         
     else:
-        #print x
         itgrnd = lambda xp: y1f(xp) * y2f(x-xp)
         y = quad(itgrnd, xmin, Imax)[0]
     return y
