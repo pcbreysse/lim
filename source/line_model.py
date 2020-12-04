@@ -14,8 +14,19 @@ from scipy.special import erf
 from scipy.stats import poisson
 from scipy.fft import fft,ifft
 
-import camb
-from classy import Class
+try:
+    import camb
+    NoCamb = False
+except:
+    NoCamb = True
+try:
+    from classy import Class
+    NoClass = False
+except:
+    NoClass = True
+if NoCamb and NoClass:
+    raise ValueError('You need to have either camb or class installed to run lim.')
+
 
 from source.tools._utils import cached_property,cached_cosmo_property,cached_vid_property,get_default_params,check_params
 from source.tools._utils import check_model,check_bias_model,check_halo_mass_function_model
