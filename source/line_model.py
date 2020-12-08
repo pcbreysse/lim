@@ -474,10 +474,10 @@ class LineModel(object):
                 var = 7
             PK = camb.get_matter_power_interpolator(self.camb_pars, zmin=0, 
                                                     zmax=zmax, nz_step=nz_step, 
-                                                    zs=None, kmax=100, nonlinear=False,
+                                                    zs=None, kmax=100, nonlinear=self.nonlinear,
                                                     var1=var, var2=var, hubble_units=False, 
                                                     k_hunit=False, return_z_k=False,
-                                                    k_per_logint=None, log_interp=True, 
+                                                    k_per_logint=None, log_interp=False, 
                                                     extrap_kmax=True)
             return PK.P
         else:
