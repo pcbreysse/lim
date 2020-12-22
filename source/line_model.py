@@ -1419,13 +1419,11 @@ class LineModel(object):
             # the unit from P1
             fP1 = ((fP1*self.P1.unit).decompose()).value 
             
-            fPT_N = np.zeros((self.Ngal_max+1,self.T.size),dtype=complex)
+            fPT = np.zeros(self.T.size,dtype=complex)
 
             for ii in range(1,self.Ngal_max+1):
-                fPT_N[ii,:] = fP1**(ii)*self.PofN[ii]
-            
-            fPT = fPT_N.sum(axis=0)
-            
+                fPT += fP1**(ii)*self.PofN[ii].value
+                        
             # Errors in fft's leave a small imaginary part, remove for output
             return (ifft(fPT)/self.dT).real
             
