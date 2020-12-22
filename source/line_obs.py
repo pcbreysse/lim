@@ -238,7 +238,7 @@ class LineObs(LineModel):
     def sigma_N(self):
         '''
         Instrumental noise per voxel. Defined slightly differently depending
-        on doJysr.
+        on doJysr. This is equivalent to sigma_pix if doJysr
         '''
         if self.do_Jysr:
             return ((self.Tsys_NEFD/self.beam_width**2)
