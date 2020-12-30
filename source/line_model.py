@@ -1518,11 +1518,13 @@ class LineModel(object):
         at T=0 is PofN(0)*Pnoise(0))
         '''
         if self.subtract_VID_mean:
+            sig2 = self.Pnoise/self.Vvox
             return vt.pdf_to_histogram(self.T,self.PT_total,self.Tedge_i,self.Nvox,
-                            self.Tmean,self.PT_zero*2./((2.*np.pi)**0.5*self.sigma_N))
+                            self.Tmean,self.PT_zero*2./((2.*np.pi*sig2)**0.5))
         else:
+            sig2 = self.Pnoise/self.Vvox
             return vt.pdf_to_histogram(self.T,self.PT_total,self.Tedge_i,self.Nvox,
-                            0.*self.Tmean.unit,self.PT_zero*2./((2.*np.pi)**0.5*self.sigma_N))
+                            0.*self.Tmean.unit,self.PT_zero*2./((2.*np.pi*sig2)**0.5))
                                         
     ######################################
     # Draw galaxies to test convolutions #    
