@@ -784,23 +784,6 @@ class LineObs(LineModel):
         return covmat
         
         
-    @cached_vid_property
-    def PDFnoise(self):
-        '''
-        PDF of the noise, to include noise in the total signal of the VID
-        We multiply the distribution by 2 in order to have a normalized PDF
-        (this is only half of a Gaussian)
-        '''
-        if self.do_Jysr:
-            sigN2 = self.Pnoise/self.Vvox
-            exparg = -0.5*self.T**2/sigN2
-            norm = (2.*np.pi*sigN2)**0.5
-        else:
-            exparg = -0.5*(self.T/self.sigma_N)**2.
-            norm = (2.*np.pi)**0.5*self.sigma_N
-        return (2.*np.exp(exparg)/norm).to((self.T**-1).unit)
-        
-        
 ############
 # Doctests #
 ############

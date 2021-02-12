@@ -1464,14 +1464,6 @@ class LineModel(object):
         return np.trapz(self.PT,self.T)+self.PT_zero
         
         
-    @cached_vid_property
-    def PT_total(self):
-        '''
-        VID of the total observed temperature (signal + noise)
-        '''
-        return vt.PT_add_signal(self.PT,self.PDFnoise,self.T,self.dT,self.do_fast_VID)
-        
-        
     ########################
     # Predicted histograms #
     ########################
