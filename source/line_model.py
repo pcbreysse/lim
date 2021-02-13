@@ -1501,22 +1501,7 @@ class LineModel(object):
         else:
             return vt.pdf_to_histogram(self.T,self.PT,self.Tedge_i,self.Nvox,
                                         0.*self.Tmean.unit,self.PT_zero)
-                                        
-    @cached_vid_property
-    def Bi_total(self):
-        '''
-        Predicted number of voxels with a given binned temperature
-        (including also the contribution of noise. Therefore, the probability
-        at T=0 is PofN(0)*Pnoise(0))
-        '''
-        if self.subtract_VID_mean:
-            sig2 = self.Pnoise/self.Vvox
-            return vt.pdf_to_histogram(self.T,self.PT_total,self.Tedge_i,self.Nvox,
-                            self.Tmean,self.PT_zero/((2.*np.pi*sig2)**0.5))
-        else:
-            sig2 = self.Pnoise/self.Vvox
-            return vt.pdf_to_histogram(self.T,self.PT_total,self.Tedge_i,self.Nvox,
-                            0.*self.Tmean.unit,self.PT_zero/((2.*np.pi*sig2)**0.5))
+                                       
                                         
     ######################################
     # Draw galaxies to test convolutions #    
