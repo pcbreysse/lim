@@ -139,7 +139,7 @@ def TonyLi(self,Mvec, MLpar, z):
     BehrooziFile = MLpar['BehrooziFile']
     
     # Read and interpolate Behroozi SFR(M) data
-    SFR = Behroozi_SFR(Mvec,z,BehrooziFile)
+    SFR = SFR_Mz_2dinterp(Mvec,z,BehrooziFile)
     # Compute IR luminosity in Lsun
     LIR = SFR/(dMF*1e-10)
     
@@ -180,7 +180,10 @@ def SilvaCII(self,Mvec, MLpar, z):
     SFR_file = MLpar['SFR_file']
     
     # Interpolate SFR from Table 2 of Silva et al. 2015
-    SFR = Silva_SFR(Mvec,z,SFR_file)
+    if 'Silva' in SFR_file:
+        SFR = Silva_SFR(Mvec,z,SFR_file)
+    else:
+        SFR = SFR_Mz_2dinterp(Mvec,z,SFR_file)
     
     # LCII relation
     L = 10**(aLCII*np.log10(SFR/(1*u.Msun/u.yr))+bLCII)*u.Lsun
@@ -215,6 +218,8 @@ def FonsecaLyalpha(self,Mvec,MLpar,z):
         SFR = Fonseca_SFR(Mvec,z,SFR_file)
     elif 'Silva' in SFR_file:
         SFR = Silva_SFR(Mvec,z,SFR_file)
+    else:
+        SFR = SFR_Mz_2dinterp(Mvec,z,SFR_file)
     
     fUVdust = 10**(-Aext/2.5)
     K_Lyalpha = (fUVdust-fUVesc)*fLyaesc*RLya
@@ -234,7 +239,10 @@ def SilvaLyalpha_12(self,Mvec,MLpar,z):
     '''
     #Get SFR file
     SFR_file = MLpar['SFR_file']
-    SFR = Silva_SFR(Mvec,z,SFR_file)
+    if 'Silva' in SFR_file:
+        SFR = Silva_SFR(Mvec,z,SFR_file)
+    else:
+        SFR = SFR_Mz_2dinterp(Mvec,z,SFR_file)
     # fraction of Lya photons not absorbed by dust
     Cdust = 3.34
     xi = 2.57
@@ -267,9 +275,9 @@ def SilvaLyalpha_12(self,Mvec,MLpar,z):
 
 def GongHalpha(self,Mvec,MLpar,z):
     '''
-    Gong et al. 2016 model for Halpha emission line. Relates Halpha 
+    Gong et al. 2017 model for Halpha emission line. Relates Halpha 
     luminosity by
-    L_Halpha [erg/s] = K_Halpha * 1e+41 * SFR, eq. 4
+    L_Halpha [erg/s] = K_Halpha * 1e+41 * SFR, eq. 3
     assuming a doble power law model for SFR, eq. 6, with 
         fit parameters in Table 1
     
@@ -282,11 +290,91 @@ def GongHalpha(self,Mvec,MLpar,z):
     Aext = MLpar['Aext']
     SFR_file = MLpar['SFR_file']
     
-    SFR = Gong_SFR(Mvec,z,SFR_file)
+    if 'Gong' in SFR_file:
+        SFR = Gong_SFR(Mvec,z,SFR_file)
+    else:
+        SFR = SFR_Mz_2dinterp(Mvec,z,SFR_file)
 
     L = SFR*K_Halpha*10**(-Aext/2.5)
     return L.to(u.Lsun)
+    
+    
+def GongHbeta(self,Mvec,MLpar,z):
+    '''
+    Gong et al. 2017 model for Hbeta emission line. Relates Hbeta 
+    luminosity by
+    L_Hbeta [erg/s] = K_Hbeta * 1e+41 * SFR, eq. 3
+    assuming a doble power law model for SFR, eq. 6, with 
+        fit parameters in Table 1
+            
+    Parameters:
+    K_Hbeta     normalization between SFR and L
+    Aext         Extinction
+    SFR_file     file with SFR
+    '''
+    K_Hbeta = MLpar['K_Hbeta']*1e41*u.erg/u.s*(u.Msun/u.yr)**-1
+    Aext = MLpar['Aext']
+    SFR_file = MLpar['SFR_file']
+    
+    if 'Gong' in SFR_file:
+        SFR = Gong_SFR(Mvec,z,SFR_file)
+    else:
+        SFR = SFR_Mz_2dinterp(Mvec,z,SFR_file)
+
+    L = SFR*K_Hbeta*10**(-Aext/2.5)
+    return L.to(u.Lsun)
+    
+
+def GongOIII(self,Mvec,MLpar,z):
+    '''
+    Gong et al. 2017 model for OIII emission line. Relates OIII 
+    luminosity by
+    L_OIII [erg/s] = K_OIII * 1e+41 * SFR, eq. 3
+    assuming a doble power law model for SFR, eq. 6, with 
+        fit parameters in Table 1
+            
+    Parameters:
+    K_OIII     normalization between SFR and L
+    Aext         Extinction
+    SFR_file     file with SFR
+    '''
+    K_OIII = MLpar['K_OIII']*1e41*u.erg/u.s*(u.Msun/u.yr)**-1
+    Aext = MLpar['Aext']
+    SFR_file = MLpar['SFR_file']
+    
+    if 'Gong' in SFR_file:
+        SFR = Gong_SFR(Mvec,z,SFR_file)
+    else:
+        SFR = SFR_Mz_2dinterp(Mvec,z,SFR_file)
+
+    L = SFR*K_OIII*10**(-Aext/2.5)
+    return L.to(u.Lsun)
         
+        
+def GongOII(self,Mvec,MLpar,z):
+    '''
+    Gong et al. 2017 model for OII emission line. Relates OII 
+    luminosity by
+    L_OII [erg/s] = K_OII * 1e+41 * SFR, eq. 3
+    assuming a doble power law model for SFR, eq. 6, with 
+        fit parameters in Table 1
+            
+    Parameters:
+    K_OII     normalization between SFR and L
+    Aext         Extinction
+    SFR_file     file with SFR
+    '''
+    K_OII = MLpar['K_OII']*1e41*u.erg/u.s*(u.Msun/u.yr)**-1
+    Aext = MLpar['Aext']
+    SFR_file = MLpar['SFR_file']
+    
+    if 'Gong' in SFR_file:
+        SFR = Gong_SFR(Mvec,z,SFR_file)
+    else:
+        SFR = SFR_Mz_2dinterp(Mvec,z,SFR_file)
+
+    L = SFR*K_OII*10**(-Aext/2.5)
+    return L.to(u.Lsun)
         
 def HI_lowz_Villaescusa(self,Mvec, MLpar, z):
     '''
@@ -406,12 +494,14 @@ def Constant_L(self,Mvec, MLpar, z):
 ###################
 # Other functions #
 ###################
-def Behroozi_SFR(M, z, BehrooziFile):
+def SFR_Mz_2dinterp(M,z,filename):
     '''
-    Returns SFR(M,z) interpolated from Behroozi et al.
+    Returns SFR(M,z) interpolated from tables following the same order as
+    the function Behroozi_SFR. The table includes log10(Mhalo/Msun),z and 
+    SFR (Msun/yr)
     '''
     SFR_folder = os.path.dirname(os.path.realpath(__file__)).split("source")[0]+'SFR_tables/'
-    x = np.loadtxt(SFR_folder+BehrooziFile)
+    x = np.loadtxt(SFR_folder+filename)
     zb = np.unique(x[:,0])-1.
     logMb = np.unique(x[:,1])
     logSFRb = x[:,2].reshape(137,122,order='F')
