@@ -497,14 +497,14 @@ def Constant_L(self,Mvec, MLpar, z):
 def SFR_Mz_2dinterp(M,z,filename):
     '''
     Returns SFR(M,z) interpolated from tables following the same order as
-    the function Behroozi_SFR. The table includes log10(Mhalo/Msun),z and 
+    the function Behroozi_SFR. The table includes 1+z, log10(Mhalo/Msun) and 
     SFR (Msun/yr)
     '''
     SFR_folder = os.path.dirname(os.path.realpath(__file__)).split("source")[0]+'SFR_tables/'
     x = np.loadtxt(SFR_folder+filename)
     zb = np.unique(x[:,0])-1.
     logMb = np.unique(x[:,1])
-    logSFRb = x[:,2].reshape(137,122,order='F')
+    logSFRb = x[:,2].reshape(len(zb),len(logMb),order='F')
     
     logSFR_interp = interp2d(logMb,zb,logSFRb,bounds_error=False,fill_value=0.)
     
