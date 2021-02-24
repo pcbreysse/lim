@@ -195,7 +195,7 @@ def FonsecaLyalpha(self,Mvec,MLpar,z):
     '''
     Fonseca et al. 2016 model for Lyman alpha emission line. Relates Lyman alpha 
     luminosity by
-    L_Lya [erg/s] = K_Lyalpha * 1e+41 * SFR, eq. 4
+    L_Lya [erg/s] = K_Lyalpha * 1e+41 * SFR, eq. 8
     assuming a triple power law model for SFR, eq. 11, with 
         fit parameters in Table 1
     
@@ -506,7 +506,7 @@ def SFR_Mz_2dinterp(M,z,filename):
     logMb = np.unique(x[:,1])
     logSFRb = x[:,2].reshape(len(zb),len(logMb),order='F')
     
-    logSFR_interp = interp2d(logMb,zb,logSFRb,bounds_error=False,fill_value=0.)
+    logSFR_interp = interp2d(logMb,zb,logSFRb,bounds_error=False,fill_value=-40.)
     
     logM = np.log10((M.to(u.Msun)).value)
     if np.array(z).size>1:
