@@ -527,7 +527,7 @@ def Silva_SFR(M,z,SFR_file):
     x = np.loadtxt(SFR_folder+SFR_file)
     
     z0 = x[0,:]
-    M0 = interp1d(z0,x[1,:],bounds_error=False,fill_value='extrapolate')(z)*u.Msun/u.yr
+    M0 = 10**interp1d(z0,np.log10(x[1,:]),bounds_error=False,fill_value='extrapolate')(z)*u.Msun/u.yr
     Ma = interp1d(z0,x[2,:],bounds_error=False,fill_value='extrapolate')(z)*u.Msun
     Mb = interp1d(z0,x[3,:],bounds_error=False,fill_value='extrapolate')(z)*u.Msun
     a = interp1d(z0,x[4,:],bounds_error=False,fill_value='extrapolate')(z)
