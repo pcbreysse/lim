@@ -120,7 +120,7 @@ def TonyLi(self,Mvec, MLpar, z):
     beta          Intercept of logLIR/logLCO relation, dimensionless
     dMF           10^10 times SFR/LIR normalization (See Li et al. Eq 1), 
                     dimensionless
-    BehrooziFile  Filename where Behroozi et al. data is stored, default
+    SFR_file  Filename where Behroozi et al. data is stored, default
                     'sfr_release.dat'. File can be downloaded from
                     peterbehroozi.com/data, (string)
     Mcut_min  Minimum mass below which L=0 (in M_sun)
@@ -136,10 +136,10 @@ def TonyLi(self,Mvec, MLpar, z):
     alpha = MLpar['alpha']
     beta = MLpar['beta']
     dMF = MLpar['dMF']
-    BehrooziFile = MLpar['BehrooziFile']
+    SFR_file = MLpar['SFR_file']
     
     # Read and interpolate Behroozi SFR(M) data
-    SFR = SFR_Mz_2dinterp(Mvec,z,BehrooziFile)
+    SFR = get_SFR(Mvec,z,SFR_file)
     # Compute IR luminosity in Lsun
     LIR = SFR/(dMF*1e-10)
     
@@ -179,11 +179,7 @@ def SilvaCII(self,Mvec, MLpar, z):
     bLCII = MLpar['b']
     SFR_file = MLpar['SFR_file']
     
-    # Interpolate SFR from Table 2 of Silva et al. 2015
-    if 'Silva' in SFR_file:
-        SFR = Silva_SFR(Mvec,z,SFR_file)
-    else:
-        SFR = SFR_Mz_2dinterp(Mvec,z,SFR_file)
+    SFR = get_SFR(Mvec,z,SFR_file)
     
     # LCII relation
     L = 10**(aLCII*np.log10(SFR/(1*u.Msun/u.yr))+bLCII)*u.Lsun
@@ -214,12 +210,7 @@ def FonsecaLyalpha(self,Mvec,MLpar,z):
     fLyaesc = MLpar['fLyaesc']
     fUVesc = MLpar['fUVesc']
     
-    if 'Fonseca' in SFR_file:          
-        SFR = Fonseca_SFR(Mvec,z,SFR_file)
-    elif 'Silva' in SFR_file:
-        SFR = Silva_SFR(Mvec,z,SFR_file)
-    else:
-        SFR = SFR_Mz_2dinterp(Mvec,z,SFR_file)
+    SFR = get_SFR(Mvec,z,SFR_file)
     
     fUVdust = 10**(-Aext/2.5)
     K_Lyalpha = (fUVdust-fUVesc)*fLyaesc*RLya
@@ -239,10 +230,9 @@ def SilvaLyalpha_12(self,Mvec,MLpar,z):
     '''
     #Get SFR file
     SFR_file = MLpar['SFR_file']
-    if 'Silva' in SFR_file:
-        SFR = Silva_SFR(Mvec,z,SFR_file)
-    else:
-        SFR = SFR_Mz_2dinterp(Mvec,z,SFR_file)
+    
+    SFR = get_SFR(Mvec,z,SFR_file)
+    
     # fraction of Lya photons not absorbed by dust
     Cdust = 3.34
     xi = 2.57
@@ -290,11 +280,8 @@ def GongHalpha(self,Mvec,MLpar,z):
     Aext = MLpar['Aext']
     SFR_file = MLpar['SFR_file']
     
-    if 'Gong' in SFR_file:
-        SFR = Gong_SFR(Mvec,z,SFR_file)
-    else:
-        SFR = SFR_Mz_2dinterp(Mvec,z,SFR_file)
-
+    SFR = get_SFR(Mvec,z,SFR_file)
+    
     L = SFR*K_Halpha*10**(-Aext/2.5)
     return L.to(u.Lsun)
     
@@ -316,10 +303,7 @@ def GongHbeta(self,Mvec,MLpar,z):
     Aext = MLpar['Aext']
     SFR_file = MLpar['SFR_file']
     
-    if 'Gong' in SFR_file:
-        SFR = Gong_SFR(Mvec,z,SFR_file)
-    else:
-        SFR = SFR_Mz_2dinterp(Mvec,z,SFR_file)
+    SFR = get_SFR(Mvec,z,SFR_file)
 
     L = SFR*K_Hbeta*10**(-Aext/2.5)
     return L.to(u.Lsun)
@@ -342,10 +326,7 @@ def GongOIII(self,Mvec,MLpar,z):
     Aext = MLpar['Aext']
     SFR_file = MLpar['SFR_file']
     
-    if 'Gong' in SFR_file:
-        SFR = Gong_SFR(Mvec,z,SFR_file)
-    else:
-        SFR = SFR_Mz_2dinterp(Mvec,z,SFR_file)
+    SFR = get_SFR(Mvec,z,SFR_file)
 
     L = SFR*K_OIII*10**(-Aext/2.5)
     return L.to(u.Lsun)
@@ -367,11 +348,8 @@ def GongOII(self,Mvec,MLpar,z):
     K_OII = MLpar['K_OII']*1e41*u.erg/u.s*(u.Msun/u.yr)**-1
     Aext = MLpar['Aext']
     SFR_file = MLpar['SFR_file']
-    
-    if 'Gong' in SFR_file:
-        SFR = Gong_SFR(Mvec,z,SFR_file)
-    else:
-        SFR = SFR_Mz_2dinterp(Mvec,z,SFR_file)
+
+    SFR = get_SFR(Mvec,z,SFR_file)
 
     L = SFR*K_OII*10**(-Aext/2.5)
     return L.to(u.Lsun)
@@ -494,14 +472,44 @@ def Constant_L(self,Mvec, MLpar, z):
 ###################
 # Other functions #
 ###################
-def SFR_Mz_2dinterp(M,z,filename):
+
+def get_SFR(M,z,SFR_file):
     '''
-    Returns SFR(M,z) interpolated from tables following the same order as
-    the function Behroozi_SFR. The table includes 1+z, log10(Mhalo/Msun) and 
-    SFR (Msun/yr)
+    Returns SFR(M,z) interpolated from a file (either a M,z,SFR table 
+    or a table of fit parameters to a SFR(M,z) relation). It takes which
+    kind of case is from the name of the SFR_file: when a specific case must 
+    be use, include that in the name of the file. 
+    
+    SFR must be in Msun/year and halo mass in Msun
+    '''
+
+    if 'Silva' in SFR_file:
+        # Interpolate parameters for SFR from Table 2 of Silva et al. 2015
+        SFR = Silva_SFR(M,z,SFR_file)
+    elif 'Fonseca' in SFR_file:          
+        # Interpolate parameters for SFR from Table 1 of Fonseca et al. 2016
+        SFR = Fonseca_SFR(M,z,SFR_file)
+    elif 'Gong' in SFR_file:
+        # Interpolate parameters for SFR from Table 1 of Gong et al. 2016
+        SFR = Gong_SFR(M,z,SFR_file)
+    else:
+        SFR = SFR_Mz_2dinterp(M,z,SFR_file)
+        
+    return SFR
+    
+
+
+def SFR_Mz_2dinterp(M,z,SFR_file):
+    '''
+    Returns SFR(M,z) interpolated from tables of 1+z, log10(Mhalo/Msun) and 
+    log10(SFR / (Msun/yr)), in three columns, where 1+z is the innermost index 
+    (the one running fast compared with the mass)
     '''
     SFR_folder = os.path.dirname(os.path.realpath(__file__)).split("source")[0]+'SFR_tables/'
-    x = np.loadtxt(SFR_folder+filename)
+    try:
+        x = np.loadtxt(SFR_folder+SFR_file)
+    except:
+        x = np.loadtxt(SFR_file)
     zb = np.unique(x[:,0])-1.
     logMb = np.unique(x[:,1])
     logSFRb = x[:,2].reshape(len(zb),len(logMb),order='F')
@@ -524,8 +532,10 @@ def Silva_SFR(M,z,SFR_file):
     Returns SFR(M,z) interpolated from values in Table 2 of Silva et al. 2015
     '''
     SFR_folder = os.path.dirname(os.path.realpath(__file__)).split("source")[0]+'SFR_tables/'
-    x = np.loadtxt(SFR_folder+SFR_file)
-    
+    try:
+        x = np.loadtxt(SFR_folder+SFR_file)
+    except:
+        x = np.loadtxt(SFR_file)    
     z0 = x[0,:]
     M0 = 10**interp1d(z0,np.log10(x[1,:]),bounds_error=False,fill_value='extrapolate')(z)*u.Msun/u.yr
     Ma = interp1d(z0,x[2,:],bounds_error=False,fill_value='extrapolate')(z)*u.Msun
@@ -543,8 +553,10 @@ def Gong_SFR(M,z,SFR_file):
     if z >= 5.:
         return np.zeros(len(M))*u.Msun/u.yr
     SFR_folder = os.path.dirname(os.path.realpath(__file__)).split("source")[0]+'SFR_tables/'
-    x = np.loadtxt(SFR_folder+SFR_file)
-    
+    try:
+        x = np.loadtxt(SFR_folder+SFR_file)
+    except:
+        x = np.loadtxt(SFR_file)    
     z0 = x[:,0]
     a = interp1d(z0,x[:,1],bounds_error=False,fill_value='extrapolate')(z)
     b = interp1d(z0,x[:,2],bounds_error=False,fill_value='extrapolate')(z)
@@ -569,8 +581,10 @@ def Fonseca_SFR(M,z,SFR_file):
     '''
 
     SFR_folder = os.path.dirname(os.path.realpath(__file__)).split("source")[0]+'SFR_tables/'
-    x = np.loadtxt(SFR_folder+SFR_file)
-    
+    try:
+        x = np.loadtxt(SFR_folder+SFR_file)
+    except:
+        x = np.loadtxt(SFR_file)    
     z0 = x[:,0]
     M0 = interp1d(z0,x[:,1],bounds_error=False,fill_value='extrapolate')(z)
     Mb = interp1d(z0,x[:,2],bounds_error=False,fill_value='extrapolate')(z)*u.Msun
