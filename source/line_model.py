@@ -724,11 +724,18 @@ class LineModel(object):
                 print('Warning! reduce Lmin to cover all luminosities of the model')
             if self.Lmax < np.max(self.LofM):
                 print('Warning! increase Lmax to cover all luminosities of the model')
-            #assume a lognormal PDF for the CLF with minimum logscatter of 0.01
+            #assume a lognormal PDF for the CLF with minimum logscatter of 0.05
             CLF_of_M = np.zeros((self.nM,self.nL))*self.dndM.unit*self.L.unit**-1
-            logscatter = max(self.sigma_scatter,0.05)
+            sigma = max(self.sigma_scatter,0.05)
+            # Special case for Tony Li model- scatter does not preserve LCO
+            if self.model_name=='TonyLi':
+                alpha = self.model_par['alpha']
+                sig_SFR = self.model_par['sig_SFR']
+                #assume sigma and sig_SFR are totally uncorrelated
+                sigma = (sigma**2 + sig_SFR**2/alpha**2)**0.5
+                sigma_base_e = sigma*2.302585
             for iM in range(self.nM):
-                CLF_of_M[iM,:] = lognormal(self.L,self.LofM[iM],logscatter)*self.dndM[iM]
+                CLF_of_M[iM,:] = lognormal(self.L,np.log(self.LofM[iM])-0.5*sigma_base_e**2.,sigma_base_e)*self.dndM[iM]
             LF = np.zeros(self.nL)*self.L.unit**-1*self.dndM.unit*self.M.unit
             for iL in range(self.nL):
                 LF[iL] = np.trapz(CLF_of_M[:,iL],self.M)
@@ -1094,7 +1101,7 @@ class LineModel(object):
             if self.model_name=='TonyLi':
                 alpha = self.model_par['alpha']
                 sig_SFR = self.model_par['sig_SFR']
-                L2bar = L2bar*np.exp(2.*(alpha**-2-alpha**-1)
+                L2bar = L2bar*np.exp((2.*alpha**-2-alpha**-1)
                                     *sig_SFR**2*np.log(10)**2)
         return L2bar
         
@@ -1164,6 +1171,8 @@ class LineModel(object):
             else:
                 Mass_Dep = self.LofM**2.*self.dndM
                 itgrnd = np.tile(Mass_Dep,(self.nk,1)).T*self.ft_NFW**2.
+                #add effect for the scatter in LCO
+                itgrnd = itgrnd*np.exp(self.sigma_scatter**2*np.log(10)**2)
                             
                 # Special case for Tony Li model- scatter does not preserve LCO
                 if self.model_name=='TonyLi':
