@@ -310,4 +310,7 @@ def lognormal(x,mu,sigma):
     Returns a lognormal PDF as function of x with mu and sigma 
     being the mean of log(x) and standard deviation of log(x), respectively
     '''
-    return 1/x/sigma/(2.*np.pi)**0.5*np.exp(-(np.log(x) - mu)**2/2./sigma**2)
+    try: 
+        return 1/x/sigma/(2.*np.pi)**0.5*np.exp(-(np.log(x.value) - mu)**2/2./sigma**2)
+    except:
+        return 1/x/sigma/(2.*np.pi)**0.5*np.exp(-(np.log(x) - mu)**2/2./sigma**2)

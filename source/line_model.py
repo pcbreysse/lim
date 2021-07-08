@@ -735,7 +735,7 @@ class LineModel(object):
                 sigma = (sigma**2 + sig_SFR**2/alpha**2)**0.5
                 sigma_base_e = sigma*2.302585
             for iM in range(self.nM):
-                CLF_of_M[iM,:] = lognormal(self.L,np.log(self.LofM[iM])-0.5*sigma_base_e**2.,sigma_base_e)*self.dndM[iM]
+                CLF_of_M[iM,:] = lognormal(self.L,np.log(self.LofM[iM].value)-0.5*sigma_base_e**2.,sigma_base_e)*self.dndM[iM]
             LF = np.zeros(self.nL)*self.L.unit**-1*self.dndM.unit*self.M.unit
             for iL in range(self.nL):
                 LF[iL] = np.trapz(CLF_of_M[:,iL],self.M)
