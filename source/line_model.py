@@ -230,7 +230,8 @@ class LineModel(object):
                  subtract_VID_mean=False,
                  linear_VID_bin=False,
                  do_sigma_G = True,
-                 sigma_G_input = 1.6):
+                 sigma_G_input = 1.6,
+                 dndL_Lcut=0.*u.Lsun):
         
 
         # Get list of input values to check type and units
@@ -734,11 +735,15 @@ class LineModel(object):
                 #assume sigma and sig_SFR are totally uncorrelated
                 sigma = (sigma**2 + sig_SFR**2/alpha**2)**0.5
                 sigma_base_e = sigma*2.302585
+            else:
+                sigma_base_e = sigma*2.302585
             for iM in range(self.nM):
                 CLF_of_M[iM,:] = lognormal(self.L,np.log(self.LofM[iM].value)-0.5*sigma_base_e**2.,sigma_base_e)*self.dndM[iM]
             LF = np.zeros(self.nL)*self.L.unit**-1*self.dndM.unit*self.M.unit
             for iL in range(self.nL):
                 LF[iL] = np.trapz(CLF_of_M[:,iL],self.M)
+            #Add a cut off at low luminosities to ease computations. Default 0*u.Lsun
+            LF *= np.exp(-self.dndL_Lcut/self.L)
             return LF
         
         
@@ -1363,11 +1368,15 @@ class LineModel(object):
         Poisson model from Breysse et al. 2017
         '''
         # PDF of galaxy density field mu
-        logMuMin = np.log10(self.Nbar)-20*self.sigma_G
-        logMuMax = np.log10(self.Nbar)+5*self.sigma_G
+        if self.model_type == 'ML':
+            Nbar = np.trapz(self.dndL,self.L)*self.Vvox
+        else:
+            Nbar = self.Nbar
+        logMuMin = np.log10(Nbar)-20*self.sigma_G
+        logMuMax = np.log10(Nbar)+5*self.sigma_G
         mu = np.logspace(logMuMin.value,logMuMax.value,10**4)
         mu2,Ngal2 = np.meshgrid(mu,self.Ngal) # Keep arrays for fast integrals
-        Pln = vt.lognormal_Pmu(mu2,self.Nbar,self.sigma_G)
+        Pln = vt.lognormal_Pmu(mu2,Nbar,self.sigma_G)
 
         P_poiss = poisson.pmf(Ngal2,mu2)
                 
@@ -1400,7 +1409,7 @@ class LineModel(object):
             else:
                 LL = (self.T/self.XLT).to(u.Lsun)
             dndL = dndL_T(LL.value)*self.dndL.unit
-            PT1 = dndL/(self.nbar*self.XLT)
+            PT1 = dndL/(np.trapz(self.dndL,self.L)*self.XLT)
         else:
             dndL_T = lambda L: getattr(lf,self.model_name)(L, self.model_par)
             if self.subtract_VID_mean:
