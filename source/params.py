@@ -62,6 +62,7 @@ default_par = dict(
               do_sigma_G = True,        # Compute theoretically the rms of fluctuations in a voxel 
                                         # default: True
               sigma_G_input = 1.6,      # input rms of fluctuations in voxel
+              dndL_Lcut=0.*u.Lsun,      # Cut off at Lmin in dndL computed from L(M) to ease computations
               # PARAMETERS USED FOR Line_Obs MODELS
               Tsys_NEFD = 40*u.K,    # System temperature
               Nfeeds = 19,    # Number of detectors
