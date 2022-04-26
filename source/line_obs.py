@@ -144,7 +144,7 @@ class LineObs(LineModel):
         sqrt(Omega_field)
         '''
         theta_side = np.sqrt(self.Omega_field)
-        return np.round((theta_side/self.beam_width).decompose())
+        return np.round((theta_side/self.beam_FWHM).decompose())
     
     
     @cached_obs_property
@@ -189,6 +189,13 @@ class LineObs(LineModel):
         '''
         return (self.r0**2*(self.Omega_field/(1.*u.rad**2))).to(u.Mpc**2)
         
+    @cached_obs_property
+    def Lpix_side(self):
+        '''
+        Length side of a pixel in Mpc
+        '''
+        pix_area = self.Sfield/self.Npix
+        return pix_area**0.5
         
     @cached_obs_property
     def Lfield(self):
@@ -204,7 +211,13 @@ class LineObs(LineModel):
             dr_los = (self.cosmo.angular_distance(z_max)*(1.+z_max)-
                       self.cosmo.angular_distance(z_min)*(1.+z_min))
         return dr_los*u.Mpc
-                
+        
+    @cached_obs_property
+    def Lchan_side(self):
+        '''
+        Depth of a voxel in Mpc related with channel width
+        '''
+        return self.Lfield/self.Nch
                 
     @cached_obs_property    
     def Vfield(self):
@@ -241,7 +254,7 @@ class LineObs(LineModel):
         on doJysr. This is equivalent to sigma_pix if doJysr
         '''
         if self.do_Jysr:
-            return ((self.Tsys_NEFD/self.beam_width**2)
+            return ((self.Tsys_NEFD/self.beam_FWHM**2)
                     .to(u.Jy*u.s**(1./2)/u.sr))
         else:
             return ((self.Tsys_NEFD/np.sqrt(self.Nfeeds*self.dnu*self.tpix))
