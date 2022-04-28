@@ -365,6 +365,7 @@ class LineObs(LineModel):
     def Wkmin_par(self):
         '''
         Precision cutoff in power spectrum due to volume observed in los direction
+        Only relevant if do_conv_Wkmin = False
         '''
         exparg = -((self.k_par/(self.N_FG_par*self.kmin_los))**2).decompose()
         return 1.-np.exp(exparg)
@@ -374,6 +375,7 @@ class LineObs(LineModel):
     def Wkmin_perp(self):
         '''
         Precision cutoff in power spectrum due to volume observed in transverse direction
+        Only relevant if do_conv_Wkmin = False
         '''
         exparg = -((self.k_perp/(self.N_FG_perp*self.kmin_sky))**2).decompose()
         return 1.-np.exp(exparg)
@@ -383,6 +385,7 @@ class LineObs(LineModel):
     def Wkmin(self):
         '''
         Precision cutoff in power spectrum due to volume observed
+        Only relevant if do_conv_Wkmin = False
         '''
         return self.Wkmin_par*self.Wkmin_perp
         
@@ -408,8 +411,10 @@ class LineObs(LineModel):
         '''
         Resolution cutoff in power spectrum
         '''
-        return self.Wkmin*self.Wkmax*self.Wk_FGwedge
-
+        if not self.do_conv_Wkmin:
+            return self.Wkmin*self.Wkmax*self.Wk_FGwedge
+        else:
+            return self.Wkmax*self.Wk_FGwedge
 
     @cached_obs_property
     def Nmodes(self):
