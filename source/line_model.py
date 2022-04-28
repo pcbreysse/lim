@@ -7,10 +7,8 @@ import inspect
 import astropy.units as u
 import astropy.constants as cu
 
-from scipy.interpolate import interp1d
-from scipy.special import sici
-from scipy.special import legendre
-from scipy.special import erf
+from scipy.interpolate import interp1d,RegularGridInterpolator
+from scipy.special import sici,erf,legendre,j1
 from scipy.stats import poisson
 from scipy.fft import fft,ifft
 
@@ -29,7 +27,7 @@ if NoCamb and NoClass:
 
 
 from source.tools._utils import cached_property,cached_cosmo_property,cached_vid_property,get_default_params,check_params
-from source.tools._utils import check_model,check_bias_model,check_halo_mass_function_model
+from source.tools._utils import check_model,check_bias_model,check_halo_mass_function_model,add_vector
 from source.tools._utils import log_interp1d,ulogspace,ulinspace,check_invalid_params,merge_dicts,lognormal
 import source.tools._vid_tools as vt
 import source.luminosity_functions as lf
@@ -156,7 +154,9 @@ class LineModel(object):
     
     smooth:         smoothed power spectrum, convoluted with beam/channel
                     (Default: False)
-    
+    do_conv_Wkmin:  Convolve the power spectrum with Wkmin instead of using a exponential suppression. 
+                    Only relevant if smooth==True. (Default = False)
+                    
     DOCTESTS:
     >>> m = LineModel()
     >>> m.hubble
@@ -219,6 +219,7 @@ class LineModel(object):
                  nmu=1000,
                  FoG_damp='Lorentzian',
                  smooth=False,
+                 do_conv_Wkmin = False,
                  nonlinear=False,
                  #VID params
                  Tmin_VID=1.0e-2*u.uK,
@@ -1213,10 +1214,42 @@ class LineModel(object):
     def Pk(self):
         '''
         Full line power spectrum including both clustering and shot noise 
-        as function of k and mu
+        as function of k and mu.
+        
+        If do_conv_Wkmin, convolve with the survey mask window assuming a 
+        cylindrical volume
         '''
         if self.smooth:
-            return self.Wk*(self.Pk_clust+self.Pk_shot)
+            if self.do_conv_Wkmin:
+                Pkres = self.Wk*(self.Pk_clust+self.Pk_shot)
+                
+                #Get the vector to integrate over
+                qe = np.logspace(-4,2,self.nk+1)
+                q = 0.5*(qe[:-1]+qe[1:])*u.Mpc**-1
+                muq = self.mu
+                
+                qi_grid,muqi_grid = np.meshgrid(q,muq)
+                q_par = qi_grid*muqi_grid
+                q_perp = qi_grid*np.sqrt(1-muqi_grid**2)
+                
+                #get the window to convolve with
+                L_perp=np.sqrt(self.Sfield/np.pi)
+                Wpar = 2*np.sin((q_par*self.Lfield/2).value)/q_par
+                Wperp = 2*np.pi*L_perp*j1(q_perp*L_perp)/q_perp
+                Wconv = Wpar*Wperp
+                
+                #Do the convolution
+                Pconv = np.zeros(Pkres.shape)*Pkres.unit*self.Vfield.unit
+                Pkres_interp = RegularGridInterpolator((self.k.value,self.mu),Pkres.T.value, bounds_error=False, fill_value=0)
+                for ik in range(self.nk):
+                    for imu in range(self.nmu):
+                        #Get the unconvolved power spectrum in the sum of vectors
+                        qsum_grid,musum_grid = add_vector(self.k[ik],self.mu[imu],qi_grid,-muqi_grid)
+                        Pconv[imu,ik] = np.trapz(np.trapz(qi_grid**2*Pkres_interp((qsum_grid.value,musum_grid.value))*Pkres.unit*np.abs(Wconv**2)/(2*np.pi**2),muq,axis=0),q)
+
+                return Pconv/self.Vfield
+            else:
+                return self.Wk*(self.Pk_clust+self.Pk_shot)
         else:
             return self.Pk_clust+self.Pk_shot
             
