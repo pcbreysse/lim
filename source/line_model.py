@@ -1245,7 +1245,7 @@ class LineModel(object):
                     for imu in range(self.nmu):
                         #Get the unconvolved power spectrum in the sum of vectors
                         qsum_grid,musum_grid = add_vector(self.k[ik],self.mu[imu],qi_grid,-muqi_grid)
-                        Pconv[imu,ik] = np.trapz(np.trapz(qi_grid**2*Pkres_interp((qsum_grid.value,musum_grid.value))*Pkres.unit*np.abs(Wconv**2)/(2*np.pi**2),muq,axis=0),q)
+                        Pconv[imu,ik] = np.trapz(np.trapz(qi_grid**2*Pkres_interp((qsum_grid.value,musum_grid.value))*Pkres.unit*np.abs(Wconv**2)/(2*np.pi)**2,muq,axis=0),q)
 
                 return Pconv/self.Vfield
             else:
