@@ -314,3 +314,16 @@ def lognormal(x,mu,sigma):
         return 1/x/sigma/(2.*np.pi)**0.5*np.exp(-(np.log(x.value) - mu)**2/2./sigma**2)
     except:
         return 1/x/sigma/(2.*np.pi)**0.5*np.exp(-(np.log(x) - mu)**2/2./sigma**2)
+
+
+def add_vector(k1, mu1, k2, mu2):
+    '''
+    Adds two vectors, where k* is the module, mu* is the cosine of the polar angle 
+    '''
+    k1par,k1perp = k1*mu1,k1*(1-mu1**2)
+    k2par,k2perp = k2*mu2,k2*(1-mu2**2)
+    
+    ksum = np.sqrt((k1perp + k2perp)**2 + (k1par + k2par)**2)
+    musum = (k1par + k2par)/ksum
+    
+    return ksum,musum
