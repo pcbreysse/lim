@@ -74,6 +74,44 @@ def DblPwr(self,Mvec, MLpar, z):
     
     return L
     
+def CO_lines_scaling_LFIR(self,Mvec, MLpar, z):
+    '''
+    Returns the luminosity for CO lines lines that have empirical scaling relations with FIR luminosity
+    
+    Examples include: All the CO rotational ladder lines
+    (From Kamenetzky+2016, arXiv:1508.05102)
+    
+    Relation is: log10(LFIR) = alpha*log10(LCO')+beta
+    
+    Parameters:
+        -SFR:       SFR of the halo in Msun/yr
+        -pars:      Dictionary of parameters for the model
+            -alpha
+            -beta
+    '''
+    alpha,beta = MLpar['alpha'],MLpar['beta']
+    SFR_file = MLpar['SFR_file']
+    
+    # Read and interpolate Behroozi SFR(M) data
+    SFR = get_SFR(Mvec,z,SFR_file)
+    #is there quenching?
+    try:
+        do_quench = ML['do_quench']
+        if do_quench:
+            fQint = process_fq()
+            SFR *= (1-fQint(np.log10(Mvec.value),1+z))
+    except:
+        pass
+        
+    # Compute IR luminosity in Lsun from Kennicutt 1998, arXiv:9807187
+    LIR = (SFR*(1/4.5e-44)*u.erg/u.s).to(u.Lsun)
+    
+    Lp = 10**((np.log10(LIR.value)-beta)/alpha)
+    
+    L = (4.9e-5*u.Lsun)*Lp
+    
+    return L
+    
     
 def COMAP_Fid(self,Mvec,MLpar,z):
     '''
@@ -140,6 +178,15 @@ def TonyLi(self,Mvec, MLpar, z):
     
     # Read and interpolate Behroozi SFR(M) data
     SFR = get_SFR(Mvec,z,SFR_file)
+    #is there quenching?
+    try:
+        do_quench = ML['do_quench']
+        if do_quench:
+            fQint = process_fq()
+            SFR *= (1-fQint(np.log10(Mvec.value),1+z))
+    except:
+        pass
+        
     # Compute IR luminosity in Lsun
     LIR = SFR/(dMF*1e-10)
     
@@ -180,7 +227,15 @@ def SilvaCII(self,Mvec, MLpar, z):
     SFR_file = MLpar['SFR_file']
     
     SFR = get_SFR(Mvec,z,SFR_file)
-    
+    #is there quenching?
+    try:
+        do_quench = ML['do_quench']
+        if do_quench:
+            fQint = process_fq()
+            SFR *= (1-fQint(np.log10(Mvec.value),1+z))
+    except:
+        pass
+            
     # LCII relation
     L = 10**(aLCII*np.log10(SFR/(1*u.Msun/u.yr))+bLCII)*u.Lsun
     
@@ -211,7 +266,15 @@ def FonsecaLyalpha(self,Mvec,MLpar,z):
     fUVesc = MLpar['fUVesc']
     
     SFR = get_SFR(Mvec,z,SFR_file)
-    
+    #is there quenching?
+    try:
+        do_quench = ML['do_quench']
+        if do_quench:
+            fQint = process_fq()
+            SFR *= (1-fQint(np.log10(Mvec.value),1+z))
+    except:
+        pass
+            
     fUVdust = 10**(-Aext/2.5)
     K_Lyalpha = (fUVdust-fUVesc)*fLyaesc*RLya
 
@@ -232,7 +295,15 @@ def SilvaLyalpha_12(self,Mvec,MLpar,z):
     SFR_file = MLpar['SFR_file']
     
     SFR = get_SFR(Mvec,z,SFR_file)
-    
+    #is there quenching?
+    try:
+        do_quench = ML['do_quench']
+        if do_quench:
+            fQint = process_fq()
+            SFR *= (1-fQint(np.log10(Mvec.value),1+z))
+    except:
+        pass
+            
     # fraction of Lya photons not absorbed by dust
     Cdust = 3.34
     xi = 2.57
@@ -281,7 +352,15 @@ def GongHalpha(self,Mvec,MLpar,z):
     SFR_file = MLpar['SFR_file']
     
     SFR = get_SFR(Mvec,z,SFR_file)
-    
+    #is there quenching?
+    try:
+        do_quench = ML['do_quench']
+        if do_quench:
+            fQint = process_fq()
+            SFR *= (1-fQint(np.log10(Mvec.value),1+z))
+    except:
+        pass
+            
     L = SFR*K_Halpha*10**(-Aext/2.5)
     return L.to(u.Lsun)
     
@@ -304,7 +383,15 @@ def GongHbeta(self,Mvec,MLpar,z):
     SFR_file = MLpar['SFR_file']
     
     SFR = get_SFR(Mvec,z,SFR_file)
-
+    #is there quenching?
+    try:
+        do_quench = ML['do_quench']
+        if do_quench:
+            fQint = process_fq()
+            SFR *= (1-fQint(np.log10(Mvec.value),1+z))
+    except:
+        pass
+        
     L = SFR*K_Hbeta*10**(-Aext/2.5)
     return L.to(u.Lsun)
     
@@ -327,7 +414,15 @@ def GongOIII(self,Mvec,MLpar,z):
     SFR_file = MLpar['SFR_file']
     
     SFR = get_SFR(Mvec,z,SFR_file)
-
+    #is there quenching?
+    try:
+        do_quench = ML['do_quench']
+        if do_quench:
+            fQint = process_fq()
+            SFR *= (1-fQint(np.log10(Mvec.value),1+z))
+    except:
+        pass
+        
     L = SFR*K_OIII*10**(-Aext/2.5)
     return L.to(u.Lsun)
         
@@ -350,7 +445,15 @@ def GongOII(self,Mvec,MLpar,z):
     SFR_file = MLpar['SFR_file']
 
     SFR = get_SFR(Mvec,z,SFR_file)
-
+    #is there quenching?
+    try:
+        do_quench = ML['do_quench']
+        if do_quench:
+            fQint = process_fq()
+            SFR *= (1-fQint(np.log10(Mvec.value),1+z))
+    except:
+        pass
+        
     L = SFR*K_OII*10**(-Aext/2.5)
     return L.to(u.Lsun)
         
@@ -598,6 +701,39 @@ def Fonseca_SFR(M,z,SFR_file):
     SFR = M0*(M/Ma)**a*(1.+M/Mb)**b*(1+M/Mc)**c*u.Msun/u.yr
     
     return SFR
+    
+
+def process_fq():
+    '''
+    Returns a 2D intepolated fQ from tables of Universe Machine. The table is 1+z, log10(Mhalo/Msun) and fQ
+    '''
+    SFR_folder = os.path.dirname(os.path.realpath(__file__)).split("source")[0]+'SFR_tables/'
+    files = os.listdir(SFR_folder+'qf/')
+    a = []
+    mat = np.zeros((32,len(files)))
+    
+    counter=0
+    for name in files:
+        a.append(float((name.split('qf_hm_a')[1]).split('.dat')[0]))
+    
+    inds = np.argsort(np.array(a))
+    a = np.sort(np.array(a))
+    
+    names = []
+    for i in range(len(inds)):
+        names.append(files[inds[i]])
+    
+    for ia in range(len(a)):  
+        data = np.genfromtxt('tables/qf/'+names[ia])
+        mat[:,ia] = data[:,1]
+        
+        
+    logMh = data[:,0]
+    zp1 = 1/a
+        
+    fQ_interp = interp2d(logMh,zp1,mat.T,bounds_error=True)
+    
+    return fQ_interp
     
     
 if __name__ == "__main__":
