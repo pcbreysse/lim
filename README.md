@@ -2,6 +2,8 @@
 
 lim is a python application designed to analytically compute various statistics of line intensity maps using a wide variety of models.  It also contains functions to generate simulated intensity maps from peak-patch simulations provided by George Stein.  This code is a work in progress, so it may change significantly and there may be undetected bugs.
 
+Due to being a live code, there may be updates without annoucement as a new release, unless something really big changes. Please make sure to update the code regularly in case eventual bug have been fixed / calculations have been improved
+
 ### Changes from previous versions
 
 - Option to use the python wrapper of class or camb. Note that the newest version of camb does not support python 2 any more. Then make sure that both class and camb versions correspond to the same python type (class wrapper can be compiled for python 3 since version 2.8).
