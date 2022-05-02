@@ -108,7 +108,7 @@ def CO_lines_scaling_LFIR(self,Mvec, MLpar, z):
     
     Lp = 10**((np.log10(LIR.value)-beta)/alpha)
     
-    L = (4.9e-5*u.Lsun)*Lp
+    L = (4.9e-5*u.Lsun)*Lp*(self.nu/(115.27*u.GHz))**3
     
     return L
     
@@ -137,7 +137,7 @@ def COMAP_Fid(self,Mvec,MLpar,z):
     Ms = MLpar['Ms']
     
     L = C/((Mvec/Ms)**A+(Mvec/Ms)**B)
-    return L*4.9e-5*u.Lsun
+    return L*4.9e-5*u.Lsun*(self.nu/(115.27*u.GHz))**3
     
     
 def TonyLi(self,Mvec, MLpar, z):
@@ -194,7 +194,7 @@ def TonyLi(self,Mvec, MLpar, z):
     Lprime = (10.**-beta * LIR)**(1./alpha)
     
     # Compute LCO
-    L = (4.9e-5*u.Lsun)*Lprime
+    L = (4.9e-5*u.Lsun)*Lprime*(self.nu/(115.27*u.GHz))**3
 
     return L
     
