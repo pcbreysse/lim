@@ -97,6 +97,9 @@ class LineModel(object):
                     'Seljak04', 'Seljak04_cosmo', 'Mandelbaum05',
                     'Tinker05', 'Tinker10', 'Manera10'
                     
+    bias_par:       A dictionary to pass non-standard values for the parameters
+                    of each bias model
+                    
     nu:             Rest frame emission frequency of target line
                     (Default = 115 GHz, i.e. CO(1-0))
                     
@@ -154,8 +157,42 @@ class LineModel(object):
     
     smooth:         smoothed power spectrum, convoluted with beam/channel
                     (Default: False)
+                    
     do_conv_Wkmin:  Convolve the power spectrum with Wkmin instead of using a exponential suppression. 
                     Only relevant if smooth==True. (Default = False)
+                    Assumes a cylindrical volume
+                    
+    nonlinear:      Using the non linear matter power spectrum in PKint (from halofit)
+                    (Boolean, default = False)
+                    
+    Tmin_VID:       Minimum temperature to compute the temperature PDF (default: 1e-2 uK)
+    
+    Tmax_VID:       Maximum temperature to compute the temperature PDF (default: 1e3 uK)
+    
+    nT:             Number of points in temperature to compute the PDF (default: 1e5)
+                    (If using do_fast_VID, may require a very high number)
+    
+    do_fast_VID:    Using FFTs to convolve the temperature PDF and compute the VID faster
+                    (Boolean, default: True)
+                    
+    Ngal_max:       Maximum value for the galaxies in a voxel (default: 100)
+    
+    Nbin_hist:      Number of bins to compute the VID histogram from the PDF (default=101)
+    
+    subtract_VID_mean:  Remove the mean from the VID measurements (default=False)
+    
+    linear_VID_bin: Using a linear sampling for the VID bins in the histogram 
+                    (Boolean, default=False, which results in log binning)
+                    
+    do_sigma_G:     Compute the variance of galaxies in a voxel to get PofN
+                    according to the power spectrum. (Boolean, default=True)
+                    
+    sigma_G_input:  Value of the standard deviation of galaxy number in a voxel
+                    (Only relevant if do_sigma_G = False, default= 1.6)
+                    
+    dndL_Lcut:      Cut in the luminosity function (at low L) if computed from L(M), 
+                    useful for numerical performance if scatter is too big. 
+                    (Only relevant if model_type='ML', default = 0 Lsun)
                     
     DOCTESTS:
     >>> m = LineModel()
