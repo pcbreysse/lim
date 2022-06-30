@@ -69,6 +69,8 @@ class LineModel(object):
     Defaults to the model from Breysse et al. (2017)
     
     INPUT PARAMETERS:
+    cosmo_code:          Whether to use class or camb (default: 'camb')
+    
     cosmo_input_camb:    Dictionary to read and feed to camb
     
     cosmo_input_class:   Dictionary to read and feed to class
@@ -1152,15 +1154,13 @@ class LineModel(object):
     @cached_property
     def Tmean(self):
         '''
-        Sky-averaged brightness temperature at nuObs from target line.  Has
-        two cases for 'LF' and 'ML' models.
-        You can direcyly input Tmean using TOY model
+        Sky-averaged brightness temperature at nuObs from target line.  
+        You can directly input Tmean using TOY model
         '''
         if self.model_type == 'TOY':
             return self.model_par['Tmean']
         else:
             return self.CLT*self.Lmean
-        
         
     @cached_property
     def Pshot(self):
