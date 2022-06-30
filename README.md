@@ -6,6 +6,8 @@ Due to being a live code, there may be updates without annoucement as a new rele
 
 ### Changes from previous versions
 
+- Included convolution with survey volume (assumed cylindrical)
+
 - Option to use the python wrapper of class or camb. Note that the newest version of camb does not support python 2 any more. Then make sure that both class and camb versions correspond to the same python type (class wrapper can be compiled for python 3 since version 2.8).
 
 - General speed up of the code:
@@ -39,7 +41,7 @@ Astropy units are used throughout this code to avoid unit conversion errors. To 
 
 Using the simulation functionality requires peak-patch catalogs.  One example catalog is included here, more can be obtained from George Stein (github.com/georgestein)
 
-Finally, lim uses the python camb wrapper to compute all needed cosmological quantities. 
+Finally, lim uses the python camb or class wrapper to compute all needed cosmological quantities. 
 
 ### Quickstart
 
@@ -48,21 +50,17 @@ After adding the lim folder to your python path, you can quickly get the default
 ```
 from lim import lim
 m = lim()
-m.Pk
+m.Pk_0
 ```
 
-Models are defined by dictionary objects in the params.py file.  The 'default_par' set of parameters is used by default, but any other set can be used by changing the 'model_params' input of lim().  For example, params.py contains another dict which defines parameters for the Li et al. (2015) CO emission model and the COMAP Phase I observation, which can be called with
+You can also set parameters directly with a dictionary. 
 
 ```
-m = lim(model_params='TonyLi_PhI')
-```
-
-You can also set parameters directly with a dictionary, for example
-
-```
-from params import TonyLi_PhI
+model_params = {<here your parameters>}
 m = lim(model_params = TonyLi_PhI)
 ```
+
+You can check all input parameters and their descriptions in `input_param_description.md`, and all the quantities that can be computed within `lim` are commented in `source/line_model.py` and `source/line_obs.py`.
 
 All modules in lim use an update(), which allows parameter values to be changed after creating the model.  Most outputs are created as @cached_properties, which will update themselves using the new value after update() is called.  For example, to change the observing frequency of a survey you could run
 
@@ -78,15 +76,15 @@ There is also a reset() method which will reset all input parameters back to the
 
 ### Examples
 
-An ipython notebook fully commented is provided as an example. Following this notebook (LIM_PkFisher.ipynb) will get you familiar with the code (especially with the computation of the power spectrum multipoles and the corresponding covariance), and will allow you to reproduce the results appearing on the papers: arXiv:1907.10065 and arXiv:1907.10067. These papers (and the example), focus on the use of the multipoles of the LIM power spectrum to extract robust and optimal cosmological information, marginalizing over astrophysical uncertainties. 
+An ipython notebook fully commented is provided as an example. 
 
 ### Modules
 
-The lim.lim() function reads a dict of parameters and creates an object which computes desired quantities from those parameters.  The object created can come from one of several modules, depending on the other inputs to lim().  The base class is the line_model.LineModel() class, which models a signal on the sky independent of survey design.  This object can output power spectra and VID's for a desired model.  If doObs=True in lim(), the line_obs.LineObs() class is used, which is a subclass of LineModel that adds in functionality related to instrumental characteristics, such as noise curves.  If doSim=True, the limlam.LimLam() class is used, which further adds the ability to generate simulated maps and compute statistics from them.
+The `lim.lim()` function reads a dict of parameters and creates an object which computes desired quantities from those parameters.  The object created can come from one of several modules, depending on the other inputs to `lim()`.  The base class is the line_model.LineModel() class, which models a signal on the sky independent of survey design.  This object can output power spectra and VID's for a desired model.  If doObs=True in lim(), the line_obs.LineObs() class is used, which is a subclass of LineModel that adds in functionality related to instrumental characteristics, such as noise curves.  If `doSim=True`, the `limlam.LimLam()` class is used, which further adds the ability to generate simulated maps and compute statistics from them.
 
 ### Line Emission Models
 
-Models for line emission physics are defined in one of two ways: either with a formula for the luminosity function dn/dL or by a mass/luminosity relation L(M).  Which is used is set by the 'model_type' input, which is 'LF' for the former and 'ML' for the latter.  Specific models are defined in the luminosity_functions.py and mass_luminosity.py files respectively.  The model_name input should be a string containing the name of a function in one of these two files, and the model_par should be a dict of that model's parameters.  Custom models can easily be added by adding additional functions to the relevant file.
+Models for line emission physics are defined in one of two ways: either with a formula for the luminosity function dn/dL or by a mass/luminosity relation L(M).  Which is used is set by the 'model_type' input, which is 'LF' for the former and 'ML' for the latter.  Specific models are defined in the `luminosity_functions.py` and `mass_luminosity.py` files respectively.  The `model_name` input should be a string containing the name of a function in one of these two files, and the `model_par` should be a dict of that model's parameters. Check each module to see the required parameters for each model. Custom models can easily be added by adding additional functions to the relevant file.
 
 ## DocTests
 
@@ -96,12 +94,7 @@ To quickly check several of the parameters, lim includes doctests.  In a termina
 python lim.py
 ```
 
-Note that the expected power spectra for the doctests were computed assuming the camb module is installed.  If you do not have camb installed, i.e. if
-
-```
-import camb
-```
-gives an error, hmf will use the EH transfer function and the doctests may fail.
+Note that the expected power spectra for the doctests were computed assuming the camb module is installed.  
 
 
 ## Usage
