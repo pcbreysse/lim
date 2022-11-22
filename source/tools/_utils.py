@@ -5,11 +5,16 @@ import numpy as np
 from astropy.units.quantity import Quantity
 import inspect
 import astropy.units as u
+import collections
 
 import source.luminosity_functions as lf
 import source.mass_luminosity as ml
 import source.bias_fitting_functions as bm
 import source.halo_mass_functions as HMF
+
+import matplotlib.pyplot as plt
+import matplotlib
+import matplotlib.colors as colors
 
 from scipy.interpolate import interp1d
 
@@ -157,6 +162,19 @@ def check_params(input_params, default_params):
             if key=='scatter_seed':
                 if type(input_value)==int or type(input_value)==float:
                     pass
+            elif key=='z_proj':
+                if type(input_value)==int or type(input_value)==float:
+                    pass
+                elif isinstance(input_value,np.float64):
+                    pass
+            elif key=='interloper_params' or key=='interloper_params_1' or key=='interloper_params_2':
+                if type(input_value)==dict or type(input_value)==str:
+                    pass
+                elif isinstance(input_value,collections.abc.Iterable):
+                    if type(input_value[0])==dict or type(input_value[0])==str:
+                        pass
+            elif key=='Px_shot_manual' and type(input_value)==Quantity:
+                pass
                 
             elif type(default_value)==Quantity:
                 raise TypeError("Parameter "+key+
@@ -189,7 +207,7 @@ def check_model(model_type,model_name):
     '''
     Check if model given by model_name exists in the given model_type
     '''
-    if model_type=='ML' and not hasattr(ml,model_name):
+    if model_type=='ML' and not hasattr(ml,model_name) and model_name != 'TOY':
         if hasattr(lf,model_name):
             raise ValueError(model_name+" not found in mass_luminosity.py."+
                     " Set model_type='LF' to use "+model_name)
@@ -327,3 +345,36 @@ def add_vector(k1, mu1, k2, mu2):
     musum = (k1par + k2par)/ksum
     
     return ksum,musum
+
+class MidpointNormalize(colors.Normalize):
+	"""
+	Normalise the colorbar so that diverging bars work there way either side from a prescribed midpoint value)
+
+	e.g. im=ax1.imshow(array, norm=MidpointNormalize(midpoint=0.,vmin=-100, vmax=100))
+	"""
+	def __init__(self, vmin=None, vmax=None, midpoint=None, clip=False):
+		self.midpoint = midpoint
+		colors.Normalize.__init__(self, vmin, vmax, clip)
+
+	def __call__(self, value, clip=None):
+		# I'm ignoring masked values and all kinds of edge cases to make a
+		# simple example...
+		x, y = [self.vmin, self.midpoint, self.vmax], [0, 0.5, 1]
+		return np.ma.masked_array(np.interp(value, x, y), np.isnan(value))
+
+def plotCov(m,vmin=-1,vmax=1):
+    '''
+    Plot covariance matrix with bwr colormap with uncorrelated points
+    colored white
+    '''
+    m[np.isnan(m)] = 0.
+    plt.imshow(m,cmap=matplotlib.cm.bwr,norm=MidpointNormalize(midpoint=0,vmin=vmin,vmax=vmax),extent=(-2,1,1,-2))
+    
+def cov_to_corr(covmat):
+        '''
+        Converts covariance matrix to correlation matrix (with unity on the
+        diagonal)
+        '''
+        s = np.sqrt(covmat.diagonal())
+        s1,s2 = np.meshgrid(s,s)
+        return covmat/(s1*s2)

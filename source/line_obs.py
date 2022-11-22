@@ -8,6 +8,8 @@ import astropy.constants as cu
 from scipy.interpolate import interp1d
 from scipy.special import legendre
 
+import collections
+
 from source.line_model import LineModel
 from source.tools._utils import cached_obs_property,cached_vid_property,get_default_params
 from source.tools._utils import ulogspace, ulinspace,check_params,log_interp1d
@@ -89,6 +91,7 @@ class LineObs(LineModel):
                  tobs=6000*u.hr, 
                  Omega_field=2.25*u.deg**2,
                  Nfield=1,
+                 beam_efficiency=1.,
                  N_FG_par = 1,
                  N_FG_perp = 1,
                  do_FG_wedge = False,
@@ -114,6 +117,63 @@ class LineObs(LineModel):
         # Combine lim_params with obs_params
         self._input_params.update(self._obs_params)
         self._default_params.update(self._default_obs_params)
+    
+    ####################
+    # Interloper Lines #
+    ####################
+    def _setup_interloper_params(self,interloper_params_i):
+        '''
+        Formats a single set of interloper parameters for creation of
+        lim objects. If interloper_params_i is a string, gets that parameter
+        dict from params.py. For all parameter lists, sets z_proj to self.z.
+        Also deletes any parameters unique to line_obs, as we will use the
+        observational parameters of the parent model whenever necessary
+        '''
+        if type(interloper_params_i)==str:
+            interloper_params_i = getattr(params,interloper_params_i)
+        
+        if not type(interloper_params_i)==dict:
+            raise ValueError('Interloper parameters must be given as a dict')
+        
+        p = dict()
+        for key in self._default_lim_params:
+            if key in interloper_params_i:
+                p[key] = interloper_params_i[key]
+            else:
+                p[key] = self._lim_params[key]
+        
+        for key in self._default_obs_params:
+            if key in interloper_params_i:
+                p[key] = interloper_params_i[key]
+            else:
+                p[key] = self._lim_params[key]
+        
+        p['z_proj'] = self.z.astype(float)
+        p['nuObs'] = self.nuObs
+        p['smooth'] = False
+        
+        if 'interloper_params' in p:
+            p.pop('interloper_params')
+        return p
+        
+    @cached_obs_property
+    def m_interloper(self):
+        '''
+        lim object or array of lim objects for each interloper line, each with z_proj
+        set to self.z.
+        '''
+        #print(isinstance(self.interloper_params,collections.abc.Iterable))
+        #print(self.interloper_params)
+        if type(self.interloper_params)==dict or type(self.interloper_params)==str:
+            par = self._setup_interloper_params(self.interloper_params)
+            return np.array([LineObs(**par)])
+        elif isinstance(self.interloper_params,collections.abc.Iterable):
+            m = np.array([LineObs(**self._setup_interloper_params(par))
+                           for par in self.interloper_params])
+            return m
+        else:
+            # TODO: fix this error message
+            raise TypeError('interloper_params wrong type')
         
     ##############
     # Field Size #
@@ -188,6 +248,20 @@ class LineObs(LineModel):
         Area of single field in the sky in Mpc**2
         '''
         return (self.r0**2*(self.Omega_field/(1.*u.rad**2))).to(u.Mpc**2)
+    
+    @cached_obs_property
+    def z_min(self):
+    	'''
+    	Minimum survey redshift
+    	'''
+    	return (self.nu/(self.nuObs+self.Delta_nu/2.)-1).value
+    
+    @cached_obs_property
+    def z_max(self):
+    	'''
+    	Maximum survey redshift
+    	'''
+    	return (self.nu/(self.nuObs-self.Delta_nu/2.)-1).value
         
     @cached_obs_property
     def Lpix_side(self):
@@ -359,7 +433,7 @@ class LineObs(LineModel):
         '''
         Resolution cutoff in power spectrum
         '''
-        return self.Wkmax_par*self.Wkmax_perp
+        return self.Wkmax_par*self.Wkmax_perp*self.beam_efficiency**2
         
     @cached_obs_property
     def Wkmin_par(self):
@@ -711,7 +785,7 @@ class LineObs(LineModel):
         '''
         Signal to noise ratio for given model and experiment
         '''
-        SNR_k = (self.Pk**2/self.sk**2).decompose()
+        SNR_k = (self.Pk_signal**2/self.sk**2).decompose()
         ind = np.logical_and(self.k>=self.kmin_field,self.k<=self.kmax_field)
         return np.sqrt(SNR_k[ind].sum())
         
@@ -721,7 +795,7 @@ class LineObs(LineModel):
         '''
         Signal to noise ratio in the monopole for given model and experiment
         '''
-        SNR_k = (self.Pk_0**2/self.covmat_00).decompose()
+        SNR_k = (self.Pk_0_signal**2/self.covmat_00).decompose()
         ind = np.logical_and(self.k>=self.kmin_field,self.k<=self.kmax_field)
         return np.sqrt(SNR_k[ind].sum())
         
@@ -731,7 +805,7 @@ class LineObs(LineModel):
         '''
         Signal to noise ratio in the quadrupole for given model and experiment
         '''
-        SNR_k = (self.Pk_2**2/self.covmat_22).decompose()
+        SNR_k = (self.Pk_2_signal**2/self.covmat_22).decompose()
         ind = np.logical_and(self.k>=self.kmin_field,self.k<=self.kmax_field)
         return np.sqrt(SNR_k[ind].sum())
         
@@ -741,7 +815,7 @@ class LineObs(LineModel):
         '''
         Signal to noise ratio in the hexadecapole for given model and experiment
         '''
-        SNR_k = (self.Pk_4**2/self.covmat_44).decompose()
+        SNR_k = (self.Pk_4_signal**2/self.covmat_44).decompose()
         ind = np.logical_and(self.k>=self.kmin_field,self.k<=self.kmax_field)
         return np.sqrt(SNR_k[ind].sum())
         
@@ -758,9 +832,9 @@ class LineObs(LineModel):
         Pkvec = np.zeros(Nkseen*3)
         covmat = np.zeros((Nkseen*3,Nkseen*3))
         
-        Pkvec[:Nkseen] = self.Pk_0[ind]
-        Pkvec[Nkseen:Nkseen*2] = self.Pk_2[ind]
-        Pkvec[Nkseen*2:Nkseen*3] = self.Pk_4[ind]
+        Pkvec[:Nkseen] = self.Pk_0_signal[ind]
+        Pkvec[Nkseen:Nkseen*2] = self.Pk_2_signal[ind]
+        Pkvec[Nkseen*2:Nkseen*3] = self.Pk_4_signal[ind]
         
         covmat[:Nkseen,:Nkseen] = np.diag(self.covmat_00[ind])
         covmat[:Nkseen,Nkseen:Nkseen*2] = np.diag(self.covmat_02[ind])
@@ -773,6 +847,46 @@ class LineObs(LineModel):
         covmat[Nkseen*2:Nkseen*3,Nkseen*2:Nkseen*3] = np.diag(self.covmat_44[ind])
         
         return np.sqrt(np.dot(Pkvec,np.dot(np.linalg.inv(covmat),Pkvec)))
+    
+    def get_Pk_combined(self,Nmul):
+        '''
+        Get the power spectra for a given number of multipoles 
+        of the cross-spectrum (starting always from the monopole
+        and without skipping any)
+        '''
+        P = np.zeros(self.nk*Nmul)*self.Pk.unit
+        nk = self.nk
+        for ii in range(0,Nmul):
+            l = 2*ii
+            P[ii*nk:(ii+1)*nk] = self.Pk_l(l)
+        return P
+    
+    @cached_obs_property
+    def Pk_combined(self):
+        '''
+        Combined power spectrum multipoles
+        '''
+        return self.get_Pk_combined(self.Nmul)
+    
+    def get_Pk_signal_combined(self,Nmul):
+        '''
+        Get the power spectra for a given number of multipoles 
+        of the cross-spectrum (starting always from the monopole
+        and without skipping any)
+        '''
+        P = np.zeros(self.nk*Nmul)*self.Pk.unit
+        nk = self.nk
+        for ii in range(0,Nmul):
+            l = 2*ii
+            P[ii*nk:(ii+1)*nk] = self.Pk_l_signal(l)
+        return P
+    
+    @cached_obs_property
+    def Pk_signal_combined(self):
+        '''
+        Combined power spectrum multipoles
+        '''
+        return self.get_Pk_signal_combined(self.Nmul)
         
         
     def get_covmat(self,Nmul):
@@ -800,6 +914,13 @@ class LineObs(LineModel):
             covmat[self.nk*2:self.nk*3,self.nk*2:self.nk*3] = np.diag(self.covmat_44)
 
         return covmat
+    
+    @cached_obs_property
+    def covmat(self):
+    	'''
+    	Covariance matrix over all Nmul multipoles
+    	'''
+    	return self.get_covmat(self.Nmul)
         
         
 ############
