@@ -11,6 +11,10 @@ from scipy.interpolate import interp1d,RegularGridInterpolator
 from scipy.special import sici,erf,legendre,j1
 from scipy.stats import poisson
 from scipy.fft import fft,ifft
+from scipy.misc import derivative
+from scipy.integrate import quad
+
+import collections
 
 try:
     import camb
@@ -30,10 +34,18 @@ from source.tools._utils import cached_property,cached_cosmo_property,cached_vid
 from source.tools._utils import check_model,check_bias_model,check_halo_mass_function_model,add_vector
 from source.tools._utils import log_interp1d,ulogspace,ulinspace,check_invalid_params,merge_dicts,lognormal
 import source.tools._vid_tools as vt
+from source.tools._ft import *
 import source.luminosity_functions as lf
 import source.mass_luminosity as ml
 import source.bias_fitting_functions as bm
 import source.halo_mass_functions as HMF
+import source.params as params
+
+from warnings import warn
+
+
+import sys
+sys.path.append("..")
 
 class LineModel(object):
     '''
@@ -260,6 +272,8 @@ class LineModel(object):
                  smooth=False,
                  do_conv_Wkmin = False,
                  nonlinear=False,
+                 z_proj=None,
+                 Nmul = 3,
                  #VID params
                  Tmin_VID=1.0e-2*u.uK,
                  Tmax_VID=1000.*u.uK,
@@ -271,7 +285,8 @@ class LineModel(object):
                  linear_VID_bin=False,
                  do_sigma_G = True,
                  sigma_G_input = 1.6,
-                 dndL_Lcut=0.*u.Lsun):
+                 dndL_Lcut=0.*u.Lsun,
+                 interloper_params=None):
         
 
         # Get list of input values to check type and units
@@ -365,6 +380,16 @@ class LineModel(object):
             # increase z_max_pk if needed
         else:
             raise ValueError("Only 'class' or 'camb' can be used as cosmological Boltzmann code. Please, choose between them")
+        
+        # Set z_proj = z if not projecting
+        if self.z_proj is None:
+        	self.z_proj = self.z
+        
+        # If using Yang+ 2021 empirical model, set scatter and fduty to match
+        if (self.model_name == 'Yang21_Empirical') and (self.model_type != 'TOY'):
+            self.sigma_scatter = getattr(ml,'YangEmp_sigma')(
+                                    self.model_par['line_name'],self.z)
+            self.fduty = getattr(ml,'YangEmp_fduty')(self.M,self.z)
         
     #################
     # Get cosmology #
@@ -747,6 +772,71 @@ class LineModel(object):
         Grid of k_perpendicular
         '''
         return self.ki_grid*np.sqrt(1.-self.mui_grid**2.)
+
+    
+    ######################################
+    # Shift k and mu values if projected #
+    ######################################
+    
+    @cached_property
+    def aproj_par(self):
+        '''
+        Factor by which k_parallel shifts under projection from z to z_proj
+        '''
+        if self.cosmo_code == 'camb':
+            H_proj = self.cosmo.hubble_parameter(self.z_proj)*(u.km/u.Mpc/u.s)
+        else:
+            H_proj = self.cosmo.Hubble(self.z_proj)*(u.Mpc**-1)*cu.c.to(u.km/u.s)
+        return H_proj*(1+self.z)/(self.H*(1+self.z_proj))
+    
+    @cached_property
+    def aproj_perp(self):
+        '''
+        Factor by which k_perp shifts under projection from z to z_proj
+        '''
+        if self.cosmo_code == 'camb':
+            DA = self.cosmo.comoving_radial_distance(self.z)/(1+self.z)
+            DA_proj = self.cosmo.comoving_radial_distance(self.z_proj)/(1+self.z)
+        elif self.cosmo_code == 'class':
+            DA = self.cosmo.angular_distance(self.z)#*(1+self.z)
+            DA_proj = self.cosmo.angular_distance(self.z_proj)#*(1+self.z_proj)
+        return DA/DA_proj
+    
+    @cached_property
+    def k_unproj_par(self):
+        '''
+        Unprojected k_parallel corresponding to given k_parallel at z_proj
+        '''
+        return self.k_par/self.aproj_par
+    
+    @cached_property
+    def k_unproj_perp(self):
+        '''
+        Unprojected k_perp corresponding to given k_perp at z_proj
+        '''
+        return self.k_perp/self.aproj_perp
+    
+    @cached_property
+    def ki_unproj_grid(self):
+        '''
+        Grid of k in unprojected frame
+        '''
+        return np.sqrt(self.k_unproj_par**2+self.k_unproj_perp**2)
+    
+    @cached_property
+    def mui_unproj_grid(self):
+        '''
+        Grid of mu in unprojected frame
+        '''
+        return (self.k_unproj_par/self.ki_unproj_grid).value
+    
+    @cached_property
+    def proj_volume_ratio(self):
+        '''
+        Shift in amplitude of power spectra due to volume effects projecting
+        from z to z_proj
+        '''
+        return 1./(self.aproj_par*self.aproj_perp**2)
     
     
     #####################
@@ -1080,7 +1170,7 @@ class LineModel(object):
         Kaiser factor and FoG for RSD
         '''
         if self.do_RSD == True:
-            kaiser = (1.+self.f_eff/self.bavg*self.mui_grid**2.)**2. #already squared
+            kaiser = (1.+self.f_eff/self.bavg*self.mui_unproj_grid**2.)**2. #already squared
             
             if self.FoG_damp == 'Lorentzian':
                 FoG = (1.+0.5*(self.k_par*self.sigma_NL).decompose()**2.)**-2.
@@ -1101,10 +1191,16 @@ class LineModel(object):
         Matter power spectrum from the interpolator computed by camb. 
         '''
         if self.cosmo_code == 'camb':
-            return self.PKint(self.z,self.ki_grid.value)*u.Mpc**3
+            P = self.PKint(self.z,self.ki_unproj_grid.value)*u.Mpc**3
+            return P*self.proj_volume_ratio
         else:
-            Pkvec = self.PKint(self.k.value,np.array([self.z]),self.nk,1,0)*u.Mpc**3
-            return np.tile(Pkvec,(self.nmu,1))
+            if self.z_proj==self.z:
+                Pkvec = self.PKint(self.k.value,np.array([self.z]),self.nk,1,0)*u.Mpc**3
+                return np.tile(Pkvec,(self.nmu,1))
+            else:
+                P = np.array([self.PKint(self.ki_unproj_grid[ii,:].value,
+                       np.array([self.z]),self.nk,1,0) for ii in range(0,self.nmu)])
+                return P*self.proj_volume_ratio*u.Mpc**3
                 
     
     @cached_property
@@ -1117,8 +1213,8 @@ class LineModel(object):
             itgrnd = self.L*self.dndL
             Lbar = np.trapz(itgrnd,self.L)
         elif self.model_type == 'ML':
-            itgrnd = self.LofM*self.dndM
-            Lbar = np.trapz(itgrnd,self.M)*self.fduty
+            itgrnd = self.LofM*self.dndM*self.fduty
+            Lbar = np.trapz(itgrnd,self.M)
             # Special case for Tony Li model- scatter does not preserve LCO
             if self.model_name=='TonyLi':
                 alpha = self.model_par['alpha']
@@ -1138,8 +1234,8 @@ class LineModel(object):
             itgrnd = self.L**2*self.dndL
             L2bar = np.trapz(itgrnd,self.L)
         elif self.model_type=='ML':
-            itgrnd = self.LofM**2*self.dndM
-            L2bar = np.trapz(itgrnd,self.M)*self.fduty
+            itgrnd = self.LofM**2*self.dndM*self.fduty
+            L2bar = np.trapz(itgrnd,self.M)
             # Add L vs. M scatter
             L2bar = L2bar*np.exp(self.sigma_scatter**2*np.log(10)**2)
             # Special case for Tony Li model- scatter does not preserve LCO
@@ -1189,7 +1285,7 @@ class LineModel(object):
             else:
                 Mass_Dep = self.LofM*self.dndM
                 itgrnd = np.tile(Mass_Dep,(self.k.size,1)).T*self.ft_NFW*self.bofM
-                wt = self.CLT*np.trapz(itgrnd,self.M,axis=0)*self.fduty
+                wt = self.CLT*np.trapz(itgrnd*self.fduty,self.M,axis=0)
                 # Special case for SFR(M) scatter in Tony Li model
                 if self.model_name=='TonyLi':
                     alpha = self.model_par['alpha']
@@ -1223,8 +1319,8 @@ class LineModel(object):
                     sig_SFR = self.model_par['sig_SFR']
                     itgrnd = itgrnd*np.exp((2.*alpha**-2-alpha**-1)
                                         *sig_SFR**2*np.log(10)**2)
-                wt = np.trapz(itgrnd,self.M,axis=0)*self.fduty
-                return np.tile(self.CLT**2.*wt,(self.nmu,1))
+                wt = np.trapz(itgrnd*self.fduty,self.M,axis=0)
+                return np.tile(self.CLT**2.*wt,(self.nmu,1))*self.proj_volume_ratio
         else:
             return np.zeros(self.Pm.shape)*self.Pshot.unit
     
@@ -1244,11 +1340,11 @@ class LineModel(object):
         Shot-noise power spectrum of target line, i.e. power spectrum without
         clustering
         '''
-        return self.Pshot*np.ones(self.Pm.shape)
+        return self.Pshot*np.ones(self.Pm.shape)*self.proj_volume_ratio
         
     
     @cached_property    
-    def Pk(self):
+    def Pk_signal(self):
         '''
         Full line power spectrum including both clustering and shot noise 
         as function of k and mu.
@@ -1289,6 +1385,72 @@ class LineModel(object):
                 return self.Wk*(self.Pk_clust+self.Pk_shot)
         else:
             return self.Pk_clust+self.Pk_shot
+    
+    @cached_property
+    def Pk_interloper(self):
+        '''
+        Full line power spectrum of all interloper lines projected to target
+        redshift
+        '''
+        P = np.zeros(self.Pk_signal.shape)*self.Pk_signal.unit
+        
+        if self.interloper_params is not None:
+            for ii in range(0,len(self.m_interloper)):
+                P = P+self.m_interloper[ii].Pk
+        if self.smooth:
+            if self.do_conv_Wkmin:
+                Pkres = self.Wk*P
+                
+                #Get the vector to integrate over
+                qe = np.logspace(-4,2,self.nk+1)
+                q = 0.5*(qe[:-1]+qe[1:])*u.Mpc**-1
+                muq = self.mu
+                
+                qi_grid,muqi_grid = np.meshgrid(q,muq)
+                q_par = qi_grid*muqi_grid
+                q_perp = qi_grid*np.sqrt(1-muqi_grid**2)
+                
+                #get the window to convolve with
+                L_perp=np.sqrt(self.Sfield/np.pi)
+                Wpar = 2*np.sin((q_par*self.Lfield/2).value)/q_par
+                Wperp = 2*np.pi*L_perp*j1(q_perp*L_perp)/q_perp
+                Wconv = Wpar*Wperp
+                
+                #Do the convolution
+                Pconv = np.zeros(Pkres.shape)*Pkres.unit*self.Vfield.unit
+                Pkres_interp = RegularGridInterpolator((self.k.value,self.mu),Pkres.T.value, bounds_error=False, fill_value=0)
+                for ik in range(self.nk):
+                    for imu in range(self.nmu):
+                        #Get the unconvolved power spectrum in the sum of vectors
+                        qsum_grid,musum_grid = add_vector(self.k[ik],self.mu[imu],qi_grid,-muqi_grid)
+                        Pconv[imu,ik] = np.trapz(np.trapz(qi_grid**2*Pkres_interp((qsum_grid.value,musum_grid.value))*Pkres.unit*np.abs(Wconv**2)/(2*np.pi)**2,muq,axis=0),q)
+
+                return Pconv/self.Vfield
+            return self.Wk*P
+        else:
+            return P
+    
+    @cached_property
+    def Pk(self):
+        '''
+        Full observed line power spectrum including clustering and shot noise
+        as well as all interlopers as a function of k and mu
+        '''
+        return self.Pk_signal+self.Pk_interloper
+    
+    @cached_property
+    def Pk_0_signal(self):
+        '''
+        Monopole of the signal power spectrum as function of k
+        '''
+        return 0.5*np.trapz(self.Pk_signal,self.mu,axis=0)
+    
+    @cached_property
+    def Pk_0_interloper(self):
+        '''
+        Monopole of the interloper power spectrum as function of k
+        '''
+        return 0.5*np.trapz(self.Pk_interloper,self.mu,axis=0)
             
         
     @cached_property
@@ -1306,6 +1468,22 @@ class LineModel(object):
         '''
         L2 = legendre(2)
         return 2.5*np.trapz(self.Pk*L2(self.mui_grid),self.mu,axis=0)
+    
+    @cached_property
+    def Pk_2_signal(self):
+        '''
+        Quadrupole of the power spectrum as function of k
+        '''
+        L2 = legendre(2)
+        return 2.5*np.trapz(self.Pk_signal*L2(self.mui_grid),self.mu,axis=0)
+    
+    @cached_property
+    def Pk_2_interloper(self):
+        '''
+        Quadrupole of the power spectrum as function of k
+        '''
+        L2 = legendre(2)
+        return 2.5*np.trapz(self.Pk_interloper*L2(self.mui_grid),self.mu,axis=0)
         
         
     @cached_property
@@ -1315,6 +1493,22 @@ class LineModel(object):
         '''
         L4 = legendre(4)
         return 4.5*np.trapz(self.Pk*L4(self.mui_grid),self.mu,axis=0)
+    
+    @cached_property
+    def Pk_4_signal(self):
+        '''
+        Hexadecapole of the interloper power spectrum as function of k
+        '''
+        L4 = legendre(4)
+        return 4.5*np.trapz(self.Pk_signal*L4(self.mui_grid),self.mu,axis=0)
+    
+    @cached_property
+    def Pk_4_interloper(self):
+        '''
+        Hexadecapole of the interloper power spectrum as function of k
+        '''
+        L4 = legendre(4)
+        return 4.5*np.trapz(self.Pk_interloper*L4(self.mui_grid),self.mu,axis=0)
         
         
     def Pk_l(self,l):
@@ -1331,6 +1525,36 @@ class LineModel(object):
             Ll = legendre(l)
             return (2.*l+1.)/2.*np.trapz(self.Pk*Ll(self.mui_grid),
                                         self.mu,axis=0)
+    
+    def Pk_l_signal(self,l):
+        '''
+        Multipole l of the signal power spectrum
+        '''
+        if l == 0:
+            return self.Pk_0_signal
+        elif l == 2:
+            return self.Pk_2_signal
+        elif l == 4:
+            return self.Pk_4_signal
+        else:
+            Ll = legendre(l)
+            return (2.*l+1.)/2.*np.trapz(self.Pk_signal*Ll(self.mui_grid),
+                                        self.mu,axis=0)
+    
+    def Pk_l_interloper(self,l):
+        '''
+        Multipole l of the interloper power spectrum
+        '''
+        if l == 0:
+            return self.Pk_0_interloper
+        elif l == 2:
+            return self.Pk_2_interloper
+        elif l == 4:
+            return self.Pk_4_interloper
+        else:
+            Ll = legendre(l)
+            return (2.*l+1.)/2.*np.trapz(self.Pk_interloper*Ll(self.mui_grid),
+                                        self.mu,axis=0)
                  
                  
     #############################################
@@ -1340,25 +1564,21 @@ class LineModel(object):
     #############################################
     
     ##################
-    # Intensity bins #
+    # Intensity Bins #
     ##################
+    
     @cached_vid_property
     def Tedge(self):
-        '''
-        Edges of intensity bins. Uses linearly spaced bins if do_fast_VID=True,
-        logarithmically spaced if do_fast=False
-        '''
         if self.do_fast_VID:
             Te = ulinspace(self.Tmin_VID,self.Tmax_VID,self.nT+1)
         else:
-            Te = ulogspace(self.Tmin_VID,self.Tmax_VID,self.nT+1)
-            
-        if self.subtract_VID_mean:
-            return Te-self.Tmean
-        else:
-            return Te
-            
-        
+            #Te = ulogspace(self.Tmin_VID,self.Tmax_VID,self.nT+1)
+            raise ValueError('Currently only works with do_fast_VID=True or useOldVID=True')
+        #if self.subtract_VID_mean:
+        #    return Te-self.Tmean
+        #else:
+        return Te
+    
     @cached_vid_property
     def T(self):
         '''
@@ -1373,89 +1593,18 @@ class LineModel(object):
         Widths of intensity bins
         '''
         return np.diff(self.Tedge)
-        
-        
-    ######################################### 
-    # Number count probability distribution #
-    #########################################
-    @cached_vid_property
-    def Nbar(self):
-        '''
-        Mean number of galaxies per voxel
-        '''
-        return self.nbar*self.Vvox
-        
-        
-    @cached_vid_property
-    def Ngal(self):
-        '''
-        Vector of galaxy number counts, from 0 to self.Ngal_max
-        '''
-        return np.array(range(0,self.Ngal_max+1))
-        
-
-    @cached_vid_property
-    def sigma_G(self):
-        '''
-        rms of fluctuations in a voxel (Gaussian window)
-        '''
-        if self.do_sigma_G:
-            #kvalues, and kpar, kperp. Power spectrum in observed redshift
-            k = np.logspace(-2,2,128)*u.Mpc**-1
-            ki,mui = np.meshgrid(k,self.mu)
-            if self.cosmo_code == 'camb':
-                Pk = self.PKint(self.z,ki.value)*u.Mpc**3
-            else:
-                Pkvec = self.PKint(k.value,np.array([self.z]),len(k),1,0)*u.Mpc**3
-                Pk = np.tile(Pkvec,(self.nmu,1))
-            
-            kpar = ki*mui
-            kperp = ki*np.sqrt(1.-mui**2.)
-            
-            #Gaussian window for voxel -> FT
-            Wkpar2 = np.exp(-((kpar*self.sigma_par)**2).decompose())
-            Wkperp2 = np.exp(-((kperp*self.sigma_perp)**2).decompose())
-            Wk2 = Wkpar2*Wkperp2
-            
-            #Compute sigma_G
-            if self.f_NL == 0:
-                bias = self.bavg[-1]
-            else:
-                bias = interp1d(self.k,self.bavg,kind='linear',bounds_error=False,fill_value=[self.bavg[0],self.bavg[-1]])
-            integrnd = bias**2*Pk*Wk2*ki**2/(4.*np.pi**2)
-            integrnd_mu = np.trapz(integrnd,self.mu,axis=0)
-            sigma = np.sqrt(np.trapz(integrnd_mu,ki[0,:]))
-            
-            return sigma
-        else:
-            return self.sigma_G_input
-    
     
     @cached_vid_property
-    def PofN(self):
+    def fT(self):
         '''
-        Probability of a voxel containing N galaxies.  Uses the lognormal +
-        Poisson model from Breysse et al. 2017
+        Fourier conjugate bin centers
         '''
-        # PDF of galaxy density field mu
-        if self.model_type == 'ML':
-            Nbar = np.trapz(self.dndL,self.L)*self.Vvox
-        else:
-            Nbar = self.Nbar
-        logMuMin = np.log10(Nbar)-20*self.sigma_G
-        logMuMax = np.log10(Nbar)+5*self.sigma_G
-        mu = np.logspace(logMuMin.value,logMuMax.value,10**4)
-        mu2,Ngal2 = np.meshgrid(mu,self.Ngal) # Keep arrays for fast integrals
-        Pln = vt.lognormal_Pmu(mu2,Nbar,self.sigma_G)
-
-        P_poiss = poisson.pmf(Ngal2,mu2)
-                
-        return np.trapz(P_poiss*Pln,mu)
-        
-        
-    ###################
-    # Intensity PDF's #
-    ###################
+        return Ttok(self.T)
+    
+    ##########################################
+    # Single-source characteristic functions #
+    ##########################################
+    
     @cached_vid_property
     def XLT(self):
         '''
@@ -1463,99 +1612,162 @@ class LineModel(object):
         intensity.  Equal to CLT/Vvox
         '''
         return self.CLT/self.Vvox
-        
     
     @cached_vid_property
-    def P1(self):
+    def fP1_0_fun(self):
         '''
-        Probability of observing a given intensity in a voxel which contains
-        exactly one emitter
+        Generates interpolated function for the single-source characteristic
+        function at an arbitrary halo mass.  Assumes a lognormal scatter with
+        width given by self.sigma_scatter.
         '''
-        # Compute dndL at L's equivalent to T bins        
-        if self.model_type == 'ML':
-            dndL_T = interp1d(self.L,self.dndL,bounds_error=False,fill_value='extrapolate')
-            if self.subtract_VID_mean:
-                LL = ((self.T+self.Tmean)/self.XLT).to(u.Lsun)
-            else:
-                LL = (self.T/self.XLT).to(u.Lsun)
-            dndL = dndL_T(LL.value)*self.dndL.unit
-            PT1 = dndL/(np.trapz(self.dndL,self.L)*self.XLT)
+        LofM0 = 1*self.Tmean.unit/self.XLT
+        
+        Tmax_log = 1e8*self.Tmean.unit
+        Tmin_log = 1e-8*self.Tmean.unit
+        Nbin_log = 5*10**5+1
+        
+        Tedge_log = ulogspace(Tmin_log,Tmax_log,Nbin_log)
+        Tlog = vt.binedge_to_binctr(Tedge_log)
+        
+        L = Tlog/self.XLT
+        
+        mu0 = 0.5*self.sigma_scatter**2*np.log(10)-np.log10(LofM0/u.Lsun)
+        P1_0 = (np.exp(-(np.log10(L/u.Lsun)+mu0)**2/(2*self.sigma_scatter**2))/
+                (self.XLT*L*self.sigma_scatter*np.log(10)*np.sqrt(2*np.pi)))
+        P1_0 = P1_0/np.trapz(P1_0,Tlog)
+        fT_0,fP1_0 = ft_log(P1_0.value,Tlog.value)
+        return interp1d(fT_0,fP1_0,fill_value=(1.,0.),bounds_error=False)
+    
+    def calc_fP1_pos(self,fT,Li):
+        '''
+        Function to calculate the single-source characteristic function for
+        sources with a given mean luminosity Li.  Only works for positive fT
+        values, full characteristic function is supplied by self.calc_fP1
+        '''
+        if np.any(fT<0):
+            raise ValueError('All fT values given to fP1_pos must be positive or zero')
+
+        LofM0 = 1*self.Tmean.unit/self.XLT
+        Lratio = Li/LofM0
+        #print('New:')
+        #print(Lratio)
+        #print()
+        return self.fP1_0_fun(fT*Lratio)
+    
+    def calc_fP1(self,Li):
+        '''
+        Calculates the full single-source characteristic function for sources
+        with a given mean luminosity Li.  Uses calc_fP1_pos and symmetry requirements
+        given that the real-space P1 is real.
+        '''
+        if np.any(self.fT<0):
+            fT_a = -self.fT[self.fT<0]
+            fP1_a = np.conjugate(self.calc_fP1_pos(fT_a,Li))
         else:
-            dndL_T = lambda L: getattr(lf,self.model_name)(L, self.model_par)
-            if self.subtract_VID_mean:
-                return dndL_T((self.T+self.Tmean)/self.XLT)/(self.nbar*self.XLT)
-            else:
-                return dndL_T(self.T/self.XLT)/(self.nbar*self.XLT)
-        return PT1
+            fP1_a = np.array([])
         
+        fT_b = self.fT[self.fT>=0]
+        fP1_b = self.calc_fP1_pos(fT_b,Li)
+        return np.append(fP1_a,fP1_b)
+    
+    @cached_vid_property
+    def fP1(self):
+        '''
+        Single-source characteristic functions for all mass bins
+        '''
+        f = np.zeros((self.nM,self.nT))*(1+1j)
+        for ii in range(0,self.nM):
+            f[ii,:] = self.calc_fP1(self.LofM[ii])
+        return f
+    
+    ###################
+    # VID calculation #
+    ###################
+    
+    @cached_vid_property
+    def fPT_N(self):
+        '''
+        Characteristic function of instrumental noise, assumed to be Gaussian
+        '''
+        return np.exp(-self.fT**2*self.sigma_N**2/2.)
+    
+    @cached_vid_property
+    def PT_N(self):
+        '''
+        Noise probability distribution
+        '''
+        return np.exp(-self.T**2/(2*self.sigma_N**2))/np.sqrt(2*np.pi*self.sigma_N**2)
+    
+    @cached_vid_property
+    def Pval(self):
+        '''
+        Variance used for clustered PDF
+        '''
         
+        itgrnd = self.ki_grid**2*self.Wk*self.Pm/(4*np.pi**2)
+        return np.trapz(np.trapz(itgrnd,self.k,axis=0),self.mu)
+    
+    @cached_vid_property
+    def fPT_S(self):
+        '''
+        Signal-only characteristic function for line intensity.
+        
+        NOTE: Often the inverse Fourier transform of this will be unreliable
+        for linearly-spaced T bins
+        '''
+        dndM = np.tile(self.dndM.reshape([self.nM,1]),self.nT)
+        bM = np.tile(self.bofM[:,0].reshape([self.nM,1]),self.nT)
+        
+        pp = self.Vvox*dndM*(self.fP1-1)
+
+        fPun = np.exp(np.trapz(pp,self.M,axis=0))
+        fPcl = np.exp(np.trapz(pp*bM,self.M,axis=0)**2*self.Pval/2.)
+        fP = fPun*fPcl
+        
+        if self.subtract_VID_mean:
+            return fP*np.exp(1j*self.fT*self.Tmean)
+        else:
+            return fP
+    
+    @cached_vid_property
+    def fPT(self):
+        '''
+        Full characteristic function of line intensity
+        '''
+        return self.fPT_S*self.fPT_N
+    
+    @cached_vid_property
+    def PT_S(self):
+        '''
+        Probability distribution of measuring signal intensity between T and T+dT
+        in any given voxel.
+        '''
+        P = ift(self.fPT_S,self.fT).real
+        nrm = np.trapz(P,self.T)
+        print(nrm.unit)
+        if abs(nrm-1)>1e-1:
+            #raise ValueError('PT not properly normalized.  Consider adjusting T binning')
+            print('PT not properly normalized.  Consider adjusting T binning')
+        return P/nrm
+    
     @cached_vid_property
     def PT(self):
         '''
-        Probability of intensity between T and T+dT in a given voxel.  Uses
-        fft's and linearly spaced T points if do_fast_VID=1.  Uses brute-force
-        convolutions and logarithmically spaced T points if do_fast_VID=0
-        
-        Does NOT include the delta function at T=0 from voxels containing zero
-        sources.  That is handled by self.PT_zero, which is later taken into
-        account when computing B_i. This means that PT will not integrate to
-        unity, but rather 1-PT_zero.
+        Probability distribution of measuring intensity between T and T+dT
+        in any given voxel.
         '''
-        if self.do_fast_VID:
-            fP1 = fft(self.P1)*self.dT
-            # FT of PDF should be dimensionless, but the fft function removes
-            # the unit from P1
-            fP1 = ((fP1*self.P1.unit).decompose()).value 
-            
-            fPT = np.zeros(self.T.size,dtype=complex)
-
-            for ii in range(1,self.Ngal_max+1):
-                fPT += fP1**(ii)*self.PofN[ii].value
-                        
-            # Errors in fft's leave a small imaginary part, remove for output
-            return (ifft(fPT)/self.dT).real
-            
-        else:
-            P_N = np.zeros([self.Ngal_max,self.T.size])*self.P1.unit
-            P_N[0,:] = self.P1
-            
-            for ii in range(1,self.Ngal_max):
-                P_N[ii,:] = vt.conv_parallel(self.T,P_N[ii-1,:],
-                                            self.T,self.P1,self.T)
-            
-            PT = np.zeros(self.T.size)
-
-            for ii in range(0,self.Ngal_max):
-                PT = PT+P_N[ii,:]*self.PofN[ii+1]
-                
-            return PT
-            
-            
-    @cached_vid_property
-    def PT_zero(self):
-        '''
-        P(T) contains a delta function at T=0 from voxels which contain zero 
-        sources.  Delta functions are difficult to include naturally in
-        arrays, so we model it separately here.  This quantity will need to be
-        taken into account for any integrals over P(T) which cover T=0. (See
-        the self.normalization function below)
-        '''
-        return self.PofN[0]
-                
-                
-    @cached_vid_property
-    def normalization(self):
-        '''
-        Outputs the value of integral(P(T)dT) including the spike at T=0.
-        Used as a numerical check, should come out quite close to 1.0
-        '''
-        return np.trapz(self.PT,self.T)+self.PT_zero
-        
-        
-    ########################
-    # Predicted histograms #
-    ########################
-                                            
+        P = ift(self.fPT,self.fT).real
+        nrm = np.trapz(P,self.T)
+        print(nrm.unit)
+        if abs(nrm-1)>1e-1:
+            #raise ValueError('PT not properly normalized.  Consider adjusting T binning')
+            print('PT not properly normalized.  Consider adjusting T binning')
+        return P/nrm
+    
+    ##############
+    # Histograms #
+    ##############
+    
     @cached_vid_property
     def Tedge_i(self):
         '''
@@ -1577,64 +1789,115 @@ class LineModel(object):
         Centers of histogram bins
         '''
         return vt.binedge_to_binctr(self.Tedge_i)
-        
+    
+    @cached_vid_property
+    def dTi(self):
+        '''
+        Widths of histogram bins
+        '''
+        return np.diff(self.Tedge_i)
+    
+    @cached_vid_property
+    def fTi(self):
+        '''
+        Fourier conjugates of histogram bin centers
+        '''
+        return Ttok(self.Ti)
+    
     @cached_vid_property
     def Bi(self):
         '''
-        Predicted number of voxels with a given binned temperature
+        Predicted number of voxels with a given binned intensity
         '''
-        if self.subtract_VID_mean:
-            return vt.pdf_to_histogram(self.T,self.PT,self.Tedge_i,self.Nvox,
-                                        self.Tmean,self.PT_zero)
-        else:
-            return vt.pdf_to_histogram(self.T,self.PT,self.Tedge_i,self.Nvox,
-                                        0.*self.Tmean.unit,self.PT_zero)
-                                       
-                                        
-    ######################################
-    # Draw galaxies to test convolutions #    
-    ######################################
+        Pi = interp1d(self.T.value,self.PT.value,fill_value=0.,bounds_error=False)
+        #B = np.zeros(self.Nbin_hist)
+        #for ii in range(0,self.Nbin_hist):
+        #    B[ii] = quad(Pi,self.Tedge_i[ii].value,self.Tedge_i[ii+1].value)[0]
+        #return B*self.Nvox
+        return Pi(self.Ti)*self.dTi*self.Nvox*self.PT.unit
     
-    def DrawTest(self,Ndraw):
+    @cached_vid_property
+    def Bi_S(self):
         '''
-        Function which draws sample galaxy populations from input number count
-        and luminosity distributions.  Outputs Ndraw histograms which can be
-        compared to self.Bi
+        Predicted number of voxels with a given binned intensity
         '''
-        h = np.zeros([Ndraw,self.Ti.size])
+        Pi = interp1d(self.T.value,self.PT_S.value,fill_value=0.,bounds_error=False)
+        #B = np.zeros(self.Nbin_hist)
+        #for ii in range(0,self.Nbin_hist):
+        #    B[ii] = quad(Pi,self.Tedge_i[ii].value,self.Tedge_i[ii+1].value)[0]
+        #return B*self.Nvox
+        return Pi(self.Ti)*self.dTi*self.Nvox*self.PT_S.unit
+    
+    @cached_vid_property
+    def Bi_N(self):
+        '''
+        Noise-only histogram
+        '''
+        Pi = interp1d(self.T.value,self.PT_N.value,fill_value=0.,bounds_error=False)
+        #B = np.zeros(self.Nbin_hist)
+        #or ii in range(0,self.Nbin_hist):
+        #    B[ii] = quad(Pi,self.Tedge_i[ii].value,self.Tedge_i[ii+1].value)[0]
+        #return B*self.Nvox
+        return Pi(self.Ti)*self.dTi*self.Nvox*self.PT_N.unit
         
-        # PofN must be exactly normalized
-        PofN = self.PofN/self.PofN.sum()
-        
-        for ii in range(0,Ndraw):
-            # Draw number of galaxies in each voxel
-            N = np.random.choice(self.Ngal,p=PofN,size=self.Nvox.astype(int))
+    @cached_vid_property
+    def fBi(self):
+        '''
+        Fourier tranform of total histogram
+        '''
+        return ft(self.Bi,self.Ti)
+    
+    @cached_vid_property
+    def fBi_N(self):
+        '''
+        Fourier transform of binned histogram
+        '''
+        return ft(self.Bi_N,self.Ti)
+    
+    #####################
+    # 2D Auto-histogram #
+    #####################
+    
+    @cached_vid_property
+    def fBi_2D_S(self):
+        '''
+        2D signal characteristic function used for auto-dde computation
+        '''
+        if not self.linear_VID_bin:
+            raise ValueError('DDE only available for linear VID bins')
             
-            # Draw galaxy luminosities
-            Ledge = np.logspace(0,10,10**4+1)*u.Lsun
-            Lgal = vt.binedge_to_binctr(Ledge)
-            dL = np.diff(Ledge)
-            PL = log_interp1d(self.L.value,self.dndL.value)(Lgal.value)*dL
-            PL = PL/PL.sum() # Must be exactly normalized
-            
-            T = np.zeros(self.Nvox.astype(int))*u.uK
-            
-            for jj in range(0,self.Nvox):
-                if N[jj]==0:
-                    L = 0.*u.Lsun
-                else:
-                    L = np.random.choice(Lgal,p=PL,size=N[jj])*u.Lsun
-                    
-                T[jj] = self.XLT*L.sum()
-            
-            h[ii,:] = np.histogram(T,bins=self.Tedge_i)[0]
-        
-        if Ndraw==1:
-            # For simplicity of later use, returns a 1-D array if Ndraw=1
-            return h[0,:]
-        else:
-            return h
-
+        fPi = interp1d(self.fT.value,self.fPT_S.value,fill_value=0.,bounds_error=False)
+        fT1,fT2 = np.meshgrid(self.fTi,self.fTi)
+        return fPi(fT1+fT2)*self.dTi[0]**2*self.Nvox
+    
+    @cached_vid_property
+    def fBi_2D_N(self):
+        '''
+        2D noise characteristic function used for auto-dde computation
+        '''
+        f1,f2 = np.meshgrid(self.fBi_N,self.fBi_N)
+        return f1*f2/self.Nvox
+    
+    @cached_vid_property
+    def fBi_2D(self):
+        '''
+        2D full characteristic function used for auto-dde computation
+        '''
+        return self.fBi_2D_S*self.fBi_2D_N/(self.dTi[0]**2*self.Nvox)
+    
+    @cached_vid_property
+    def Bi_2D(self):
+        '''
+        2D histogram used for auto-dde computation
+        '''
+        return ift2(self.fBi_2D,self.fTi,self.fTi).real
+    
+    @cached_vid_property
+    def Bi_2D_N(self):
+        '''
+        2D histogram used for auto-dde computation
+        '''
+        return ift2(self.fBi_2D_N,self.fTi,self.fTi).real
         
     ########################################################################
     # Method for updating input parameters and resetting cached properties #
@@ -1681,7 +1944,9 @@ class LineModel(object):
             self._update_vid_list = []
             #if smooth Pk, needs to be recomputed, since Pk changes
             if self.smooth:
-                Pklist = ['Pk','Pk_0','Pk_2','Pk_4']
+                Pklist = ['Pk','Pk_0','Pk_2','Pk_4','Pk_signal','Pk_interloper',
+                          'Pk_0_signal','Pk_2_signal','Pk_4_signal',
+                          'Pk_0_interloper','Pk_2_interloper','Pk_4_interloper']
                 for attribute in Pklist:
                     if attribute in self._update_list:
                         delattr(self,attribute)
@@ -1774,6 +2039,10 @@ class LineModel(object):
         #update parameters
         for key in new_params:
             setattr(self, key, new_params[key])
+        
+        # Set z_proj = z if not projecting
+        if self.z_proj is None:
+        	self.z_proj = self.z
                  
             
     #####################################################
