@@ -241,7 +241,7 @@ def SilvaCII(self,Mvec, MLpar, z):
     
     return L
 
-def Hamsa_CII(Mvec,MLpar,z):
+def Hamsa_CII(self,Mvec,MLpar,z):
 	'''
 	Padmanabhan 2019 CII model
 	'''
@@ -253,7 +253,7 @@ def Hamsa_CII(Mvec,MLpar,z):
 	zdep = ((1+z)**2.7/(1+((1+z)/2.9)**5.6))**alpha
 	return (Mvec/M1)**beta*np.exp(-N1/Mvec)*zdep*u.Lsun
 
-def Hamsa_CII_Modified(Mvec,MLpar,z):
+def Hamsa_CII_Modified(self,Mvec,MLpar,z):
 	'''
 	Padmanabhan 2019 CII model, modified for more elegant parameter constraints
 	'''

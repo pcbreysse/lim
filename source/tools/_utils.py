@@ -175,6 +175,10 @@ def check_params(input_params, default_params):
                         pass
             elif key=='Px_shot_manual' and type(input_value)==Quantity:
                 pass
+            elif key=='Vvox_VID':
+                pass
+            elif key=='sigN_VID':
+                pass
                 
             elif type(default_value)==Quantity:
                 raise TypeError("Parameter "+key+

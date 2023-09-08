@@ -282,10 +282,13 @@ class LineModel(object):
                  Ngal_max=100,
                  Nbin_hist=101,
                  subtract_VID_mean=False,
-                 linear_VID_bin=False,
+                 linear_VID_bin=True,
                  do_sigma_G = True,
                  sigma_G_input = 1.6,
                  dndL_Lcut=0.*u.Lsun,
+                 Vvox_VID = None,
+                 sigN_VID = None,
+                 # Interloper
                  interloper_params=None):
         
 
@@ -391,6 +394,15 @@ class LineModel(object):
                                     self.model_par['line_name'],self.z)
             self.fduty = getattr(ml,'YangEmp_fduty')(self.M,self.z)
         
+        # Allow custom definition of voxel volume and noise amplitude for VID
+        if self.Vvox_VID is None:
+            self.Vvox_VID = self.Vvox
+        if self.sigN_VID is None:
+            if self.do_Jysr:
+                self.sigN_VID = self.sigmaN/np.sqrt(self.tobs)
+            else:
+                self.sigN_VDID = self.sigmaN
+                        
     #################
     # Get cosmology #
     #################
@@ -1611,7 +1623,7 @@ class LineModel(object):
         Constant relating total luminosity in a voxel to its observed
         intensity.  Equal to CLT/Vvox
         '''
-        return self.CLT/self.Vvox
+        return self.CLT/self.Vvox_VID
     
     @cached_vid_property
     def fP1_0_fun(self):
@@ -1689,14 +1701,14 @@ class LineModel(object):
         '''
         Characteristic function of instrumental noise, assumed to be Gaussian
         '''
-        return np.exp(-self.fT**2*self.sigma_N**2/2.)
+        return np.exp(-self.fT**2*self.sigN_VID**2/2.)
     
     @cached_vid_property
     def PT_N(self):
         '''
         Noise probability distribution
         '''
-        return np.exp(-self.T**2/(2*self.sigma_N**2))/np.sqrt(2*np.pi*self.sigma_N**2)
+        return np.exp(-self.T**2/(2*self.sigN_VID**2))/np.sqrt(2*np.pi*self.sigN_VID**2)
     
     @cached_vid_property
     def Pval(self):
@@ -1705,7 +1717,7 @@ class LineModel(object):
         '''
         
         itgrnd = self.ki_grid**2*self.Wk*self.Pm/(4*np.pi**2)
-        return np.trapz(np.trapz(itgrnd,self.k,axis=0),self.mu)
+        return np.trapz(np.trapz(itgrnd,self.k,axis=1),self.mu)
     
     @cached_vid_property
     def fPT_S(self):
@@ -1769,6 +1781,10 @@ class LineModel(object):
     ##############
     
     @cached_vid_property
+    def Nvox_VID(self):
+        return int(self.Vfield/self.Vvox_VID)
+    
+    @cached_vid_property
     def Tedge_i(self):
         '''
         Edges of histogram bins
@@ -1814,7 +1830,7 @@ class LineModel(object):
         #for ii in range(0,self.Nbin_hist):
         #    B[ii] = quad(Pi,self.Tedge_i[ii].value,self.Tedge_i[ii+1].value)[0]
         #return B*self.Nvox
-        return Pi(self.Ti)*self.dTi*self.Nvox*self.PT.unit
+        return Pi(self.Ti)*self.dTi*self.Nvox_VID*self.PT.unit
     
     @cached_vid_property
     def Bi_S(self):
@@ -1826,7 +1842,7 @@ class LineModel(object):
         #for ii in range(0,self.Nbin_hist):
         #    B[ii] = quad(Pi,self.Tedge_i[ii].value,self.Tedge_i[ii+1].value)[0]
         #return B*self.Nvox
-        return Pi(self.Ti)*self.dTi*self.Nvox*self.PT_S.unit
+        return Pi(self.Ti)*self.dTi*self.Nvox_VID*self.PT_S.unit
     
     @cached_vid_property
     def Bi_N(self):
@@ -1838,7 +1854,7 @@ class LineModel(object):
         #or ii in range(0,self.Nbin_hist):
         #    B[ii] = quad(Pi,self.Tedge_i[ii].value,self.Tedge_i[ii+1].value)[0]
         #return B*self.Nvox
-        return Pi(self.Ti)*self.dTi*self.Nvox*self.PT_N.unit
+        return Pi(self.Ti)*self.dTi*self.Nvox_VID*self.PT_N.unit
         
     @cached_vid_property
     def fBi(self):
@@ -1868,7 +1884,7 @@ class LineModel(object):
             
         fPi = interp1d(self.fT.value,self.fPT_S.value,fill_value=0.,bounds_error=False)
         fT1,fT2 = np.meshgrid(self.fTi,self.fTi)
-        return fPi(fT1+fT2)*self.dTi[0]**2*self.Nvox
+        return fPi(fT1+fT2)*self.dTi[0]**2*self.Nvox_VID
     
     @cached_vid_property
     def fBi_2D_N(self):
@@ -1876,14 +1892,14 @@ class LineModel(object):
         2D noise characteristic function used for auto-dde computation
         '''
         f1,f2 = np.meshgrid(self.fBi_N,self.fBi_N)
-        return f1*f2/self.Nvox
+        return f1*f2/self.Nvox_VID
     
     @cached_vid_property
     def fBi_2D(self):
         '''
         2D full characteristic function used for auto-dde computation
         '''
-        return self.fBi_2D_S*self.fBi_2D_N/(self.dTi[0]**2*self.Nvox)
+        return self.fBi_2D_S*self.fBi_2D_N/(self.dTi[0]**2*self.Nvox_VID)
     
     @cached_vid_property
     def Bi_2D(self):
