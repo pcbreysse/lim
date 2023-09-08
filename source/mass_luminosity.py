@@ -240,7 +240,29 @@ def SilvaCII(self,Mvec, MLpar, z):
     L = 10**(aLCII*np.log10(SFR/(1*u.Msun/u.yr))+bLCII)*u.Lsun
     
     return L
-    
+
+def Hamsa_CII(Mvec,MLpar,z):
+	'''
+	Padmanabhan 2019 CII model
+	'''
+	M1 = MLpar['M1']
+	N1 = MLpar['N1']
+	alpha = MLpar['alpha']
+	beta = MLpar['beta']
+	
+	zdep = ((1+z)**2.7/(1+((1+z)/2.9)**5.6))**alpha
+	return (Mvec/M1)**beta*np.exp(-N1/Mvec)*zdep*u.Lsun
+
+def Hamsa_CII_Modified(Mvec,MLpar,z):
+	'''
+	Padmanabhan 2019 CII model, modified for more elegant parameter constraints
+	'''
+	A = MLpar['A']
+	N1 = MLpar['N1']
+	beta = MLpar['beta']
+	
+	return A*(Mvec/N1)**beta*np.exp(-N1/Mvec)
+
     
 def FonsecaLyalpha(self,Mvec,MLpar,z):
     '''
