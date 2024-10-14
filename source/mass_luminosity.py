@@ -17,7 +17,7 @@ Add in models from Matlab code
 import numpy as np
 import astropy.units as u
 import astropy.constants as cu
-from scipy.interpolate import interp2d,interp1d
+from scipy.interpolate import interp1d,RegularGridInterpolator
 import os 
 
 def MassPow(self,Mvec, MLpar, z):
@@ -639,15 +639,17 @@ def SFR_Mz_2dinterp(M,z,SFR_file):
     logMb = np.unique(x[:,1])
     logSFRb = x[:,2].reshape(len(zb),len(logMb),order='F')
     
-    logSFR_interp = interp2d(logMb,zb,logSFRb,bounds_error=False,fill_value=-40.)
+    #logSFR_interp = interp2d(logMb,zb,logSFRb,bounds_error=False,fill_value=-40.)
+    logSFR_interp = RegularGridInterpolator((zb,logMb),logSFRb,
+    										 bounds_error=False,fill_value=-40.)
     
     logM = np.log10((M.to(u.Msun)).value)
     if np.array(z).size>1:
         SFR = np.zeros(logM.size)
         for ii in range(0,logM.size):
-            SFR[ii] = 10.**logSFR_interp(logM[ii],z[ii])
+            SFR[ii] = 10.**logSFR_interp(z[ii],logM[ii])
     else:
-        SFR = 10.**logSFR_interp(logM,z)
+        SFR = 10.**logSFR_interp((z,logM))
     
     return SFR
     

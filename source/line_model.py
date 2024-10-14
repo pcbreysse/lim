@@ -395,13 +395,14 @@ class LineModel(object):
             self.fduty = getattr(ml,'YangEmp_fduty')(self.M,self.z)
         
         # Allow custom definition of voxel volume and noise amplitude for VID
-        if self.Vvox_VID is None:
-            self.Vvox_VID = self.Vvox
-        if self.sigN_VID is None:
-            if self.do_Jysr:
-                self.sigN_VID = self.sigmaN/np.sqrt(self.tobs)
-            else:
-                self.sigN_VDID = self.sigmaN
+        # TODO: Fix init error with this section
+        #if self.Vvox_VID is None:
+        #    self.Vvox_VID = self.Vvox
+        #if self.sigN_VID is None:
+        #    if self.do_Jysr:
+        #        self.sigN_VID = self.sigmaN/np.sqrt(self.tobs)
+        #    else:
+        #        self.sigN_VDID = self.sigmaN
                         
     #################
     # Get cosmology #

@@ -115,7 +115,7 @@ def get_default_params(func):
     "self" argument it is removed from the dictionary.
     '''
     
-    args = inspect.getargspec(func)
+    args = inspect.getfullargspec(func)
     
     param_names = args.args
     if 'self' in param_names:
