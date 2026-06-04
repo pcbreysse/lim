@@ -7,10 +7,10 @@ import inspect
 import astropy.units as u
 import collections
 
-import source.luminosity_functions as lf
-import source.mass_luminosity as ml
-import source.bias_fitting_functions as bm
-import source.halo_mass_functions as HMF
+import lim.luminosity_functions as lf
+import lim.mass_luminosity as ml
+import lim.bias_fitting_functions as bm
+import lim.halo_mass_functions as HMF
 
 import matplotlib.pyplot as plt
 import matplotlib
