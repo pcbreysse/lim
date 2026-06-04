@@ -20,6 +20,8 @@ import astropy.constants as cu
 from scipy.interpolate import interp1d,RegularGridInterpolator
 import os 
 
+from importlib.resources import files
+
 def MassPow(self,Mvec, MLpar, z):
     """
     Power law L(M)/L_sun = A*(M/M_sun)^b (See Breysse et al. 2015)
@@ -630,11 +632,16 @@ def SFR_Mz_2dinterp(M,z,SFR_file):
     log10(SFR / (Msun/yr)), in three columns, where 1+z is the innermost index 
     (the one running fast compared with the mass)
     '''
+    '''
     SFR_folder = os.path.dirname(os.path.realpath(__file__)).split("source")[0]+'SFR_tables/'
     try:
         x = np.loadtxt(SFR_folder+SFR_file)
     except:
         x = np.loadtxt(SFR_file)
+    '''
+
+    x = np.loadtxt(files('lim').joinpath(SFR_file))
+    
     zb = np.unique(x[:,0])-1.
     logMb = np.unique(x[:,1])
     logSFRb = x[:,2].reshape(len(zb),len(logMb),order='F')

@@ -31,6 +31,9 @@ my-package = "my_package.cli:main"
 [tool.setuptools.packages.find]
 where = ["source"]
 
+[tool.setuptools.package-data]
+"lim" = ["*.dat"]
+
 [tool.ruff]
 line-length = 88
 src = ["source"]
