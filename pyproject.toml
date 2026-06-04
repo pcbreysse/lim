@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lim"
+version = "0.1.0"
+description = "Line Intensity Mapping Scratch Code"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Patrick Breysse", email = "pcbreysse@gmail.com" }
+]
+keywords = ["example", "template"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "camb",
+]
+
+[project.optional-dependencies]
+dev = []
+
+[project.scripts]
+my-package = "my_package.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["source"]
+
+[tool.ruff]
+line-length = 88
+src = ["source"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

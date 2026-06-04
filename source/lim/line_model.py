@@ -11,7 +11,6 @@ from scipy.interpolate import interp1d,RegularGridInterpolator
 from scipy.special import sici,erf,legendre,j1
 from scipy.stats import poisson
 from scipy.fft import fft,ifft
-from scipy.misc import derivative
 from scipy.integrate import quad
 
 import collections
@@ -30,22 +29,19 @@ if NoCamb and NoClass:
     raise ValueError('You need to have either camb or class installed to run lim.')
 
 
-from source.tools._utils import cached_property,cached_cosmo_property,cached_vid_property,get_default_params,check_params
-from source.tools._utils import check_model,check_bias_model,check_halo_mass_function_model,add_vector
-from source.tools._utils import log_interp1d,ulogspace,ulinspace,check_invalid_params,merge_dicts,lognormal
-import source.tools._vid_tools as vt
-from source.tools._ft import *
-import source.luminosity_functions as lf
-import source.mass_luminosity as ml
-import source.bias_fitting_functions as bm
-import source.halo_mass_functions as HMF
-import source.params as params
+from lim.tools._utils import cached_property,cached_cosmo_property,cached_vid_property,get_default_params,check_params
+from lim.tools._utils import check_model,check_bias_model,check_halo_mass_function_model,add_vector
+from lim.tools._utils import log_interp1d,ulogspace,ulinspace,check_invalid_params,merge_dicts,lognormal
+import lim.tools._vid_tools as vt
+from lim.tools._ft import *
+import lim.luminosity_functions as lf
+import lim.mass_luminosity as ml
+import lim.bias_fitting_functions as bm
+import lim.halo_mass_functions as HMF
+import lim.params as params
 
 from warnings import warn
 
-
-import sys
-sys.path.append("..")
 
 class LineModel(object):
     '''

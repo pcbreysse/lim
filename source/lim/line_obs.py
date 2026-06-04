@@ -10,9 +10,9 @@ from scipy.special import legendre
 
 import collections
 
-from source.line_model import LineModel
-from source.tools._utils import cached_obs_property,cached_vid_property,get_default_params
-from source.tools._utils import ulogspace, ulinspace,check_params,log_interp1d
+from lim.line_model import LineModel
+from lim.tools._utils import cached_obs_property,cached_vid_property,get_default_params
+from lim.tools._utils import ulogspace, ulinspace,check_params,log_interp1d
 
 class LineObs(LineModel):
     '''

@@ -1,5 +1,5 @@
 import numpy as np
-import pyfftlog as fftlog
+import scipy.fft as fftlog
 
 def ft_log_mu(y,x,mu,q=0,kxopt=1,kx=1,tdir=1):
     ar = y*x**(1./2-q)
