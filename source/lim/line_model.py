@@ -2052,10 +2052,16 @@ class LineModel(object):
         #update parameters
         for key in new_params:
             setattr(self, key, new_params[key])
+            
+        print('self.z:',self.z)
         
         # Set z_proj = z if not projecting
-        if self.z_proj is None:
-        	self.z_proj = self.z
+        try:
+            if self._input_params.z_proj is None:
+            	self.z_proj = self.z
+        except AttributeError:
+            if not hasattr(self._input_params,'z_proj'):
+                self.z_proj = self.z
                  
             
     #####################################################
