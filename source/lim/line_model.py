@@ -2052,8 +2052,6 @@ class LineModel(object):
         #update parameters
         for key in new_params:
             setattr(self, key, new_params[key])
-            
-        print('self.z:',self.z)
         
         # Set z_proj = z if not projecting
         try:
