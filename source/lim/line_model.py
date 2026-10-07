@@ -1,24 +1,22 @@
+
 '''
 Base module for generating models of line intensity maps
 '''
 
 import numpy as np
-
-try:
-    from numpy import trapezoid 
-except: 
-    from numpy import trapz as trapezoid
-
 import inspect
 import astropy.units as u
 import astropy.constants as cu
+
 
 from scipy.interpolate import interp1d,RegularGridInterpolator
 from scipy.special import sici,erf,legendre,j1
 from scipy.stats import poisson
 from scipy.fft import fft,ifft
+from scipy.misc import derivative
 from scipy.integrate import quad
-
+from sympy.physics.wigner import gaunt
+from sympy.physics.wigner import wigner_3j
 import collections
 
 try:
@@ -35,19 +33,22 @@ if NoCamb and NoClass:
     raise ValueError('You need to have either camb or class installed to run lim.')
 
 
-from lim.tools._utils import cached_property,cached_cosmo_property,cached_vid_property,get_default_params,check_params
-from lim.tools._utils import check_model,check_bias_model,check_halo_mass_function_model,add_vector
-from lim.tools._utils import log_interp1d,ulogspace,ulinspace,check_invalid_params,merge_dicts,lognormal
-import lim.tools._vid_tools as vt
-from lim.tools._ft import *
-import lim.luminosity_functions as lf
-import lim.mass_luminosity as ml
-import lim.bias_fitting_functions as bm
-import lim.halo_mass_functions as HMF
-import lim.params as params
+from source.tools._utils import cached_property,cached_cosmo_property,cached_vid_property,get_default_params,check_params
+from source.tools._utils import check_model,check_bias_model,check_halo_mass_function_model,add_vector
+from source.tools._utils import log_interp1d,ulogspace,ulinspace,check_invalid_params,merge_dicts,lognormal
+import source.tools._vid_tools as vt
+from source.tools._ft import *
+import source.luminosity_functions as lf
+import source.mass_luminosity as ml
+import source.bias_fitting_functions as bm
+import source.halo_mass_functions as HMF
+import source.params as params
 
 from warnings import warn
 
+
+import sys
+sys.path.append("..")
 
 class LineModel(object):
     '''
@@ -229,7 +230,7 @@ class LineModel(object):
     '''
     
     def __init__(self,
-                 cosmo_code = 'camb',
+                 cosmo_code = 'camb',  
                  cosmo_input_camb=dict(f_NL=0,H0=67.36,cosmomc_theta=None,ombh2=0.02237, omch2=0.12, 
                                omk=0.0, neutrino_hierarchy='degenerate', 
                                num_massive_neutrinos=3, mnu=0.06, nnu=3.046, 
@@ -259,7 +260,7 @@ class LineModel(object):
                  Lmin=10*u.Lsun,
                  Lmax=1e8*u.Lsun,
                  nL=5000,
-                 kmin = 1e-2*u.Mpc**-1,
+                 kmin = 1e-3*u.Mpc**-1,
                  kmax = 10.*u.Mpc**-1,
                  nk = 100,
                  k_kind = 'log',
@@ -291,12 +292,18 @@ class LineModel(object):
                  Vvox_VID = None,
                  sigN_VID = None,
                  # Interloper
+                 ell_max = 1000,
+                 ell_min= 0,
+                 n_ell = 1000,
                  interloper_params=None):
         
 
         # Get list of input values to check type and units
         self._lim_params = locals()
         self._lim_params.pop('self')
+
+        self.kmax=kmax
+        print(self.kmax)
         
         # Get list of input names and default values
         self._default_lim_params = get_default_params(LineModel.__init__)
@@ -735,7 +742,7 @@ class LineModel(object):
     @cached_property
     def mu_edge(self):
         '''
-        cos theta bin edges
+        cos theta bin edges    
         '''
         return np.linspace(-1,1,self.nmu+1)
         
@@ -768,7 +775,7 @@ class LineModel(object):
     @cached_property
     def mui_grid(self):
         '''
-        Grid of mu for anisotropic
+        Grid of mu for anisotropic 
         '''
         return np.meshgrid(self.k,self.mu)[1]
         
@@ -886,7 +893,7 @@ class LineModel(object):
                 CLF_of_M[iM,:] = lognormal(self.L,np.log(self.LofM[iM].value)-0.5*sigma_base_e**2.,sigma_base_e)*self.dndM[iM]
             LF = np.zeros(self.nL)*self.L.unit**-1*self.dndM.unit*self.M.unit
             for iL in range(self.nL):
-                LF[iL] = trapezoid(CLF_of_M[:,iL],self.M)
+                LF[iL] = np.trapz(CLF_of_M[:,iL],self.M)
             #Add a cut off at low luminosities to ease computations. Default 0*u.Lsun
             LF *= np.exp(-self.dndL_Lcut/self.L)
             return LF
@@ -956,7 +963,7 @@ class LineModel(object):
         
         #Compute sigma(M)
         integrnd = Pk*W**2*kvec**2/(2.*np.pi**2)
-        sigma = np.sqrt(trapezoid(integrnd,kvec[:,0],axis=0))
+        sigma = np.sqrt(np.trapz(integrnd,kvec[:,0],axis=0))
         
         return sigma
         
@@ -988,7 +995,7 @@ class LineModel(object):
         
         #Compute sigma(M)
         integrnd = Pk*W**2*kvec**2/(2.*np.pi**2)
-        sigma = np.sqrt(trapezoid(integrnd,kvec[:,0],axis=0))
+        sigma = np.sqrt(np.trapz(integrnd,kvec[:,0],axis=0))
         
         return sigma
         
@@ -1158,7 +1165,7 @@ class LineModel(object):
             itgrnd1 = self.bofM*factor
             itgrnd2 = factor
             
-            b_line = trapezoid(itgrnd1,self.M,axis=0) / trapezoid(itgrnd2,self.M,axis=0)
+            b_line = np.trapz(itgrnd1,self.M,axis=0) / np.trapz(itgrnd2,self.M,axis=0)
         
         return b_line 
     
@@ -1170,9 +1177,9 @@ class LineModel(object):
         in 'LF' models and from the mass function in 'ML' models
         '''
         if self.model_type=='LF':
-            nbar = trapezoid(self.dndL,self.L)
+            nbar = np.trapz(self.dndL,self.L)
         else:
-            nbar = trapezoid(self.dndM,self.M)
+            nbar = np.trapz(self.dndM,self.M)
         return nbar
         
         
@@ -1226,10 +1233,10 @@ class LineModel(object):
         '''
         if self.model_type=='LF':
             itgrnd = self.L*self.dndL
-            Lbar = trapezoid(itgrnd,self.L)
+            Lbar = np.trapz(itgrnd,self.L)
         elif self.model_type == 'ML':
             itgrnd = self.LofM*self.dndM*self.fduty
-            Lbar = trapezoid(itgrnd,self.M)
+            Lbar = np.trapz(itgrnd,self.M)
             # Special case for Tony Li model- scatter does not preserve LCO
             if self.model_name=='TonyLi':
                 alpha = self.model_par['alpha']
@@ -1247,14 +1254,14 @@ class LineModel(object):
         '''
         if self.model_type=='LF':
             itgrnd = self.L**2*self.dndL
-            L2bar = trapezoid(itgrnd,self.L)
+            L2bar = np.trapz(itgrnd,self.L)
         elif self.model_type=='ML':
             itgrnd = self.LofM**2*self.dndM*self.fduty
-            L2bar = trapezoid(itgrnd,self.M)
+            L2bar = np.trapz(itgrnd,self.M)
             # Add L vs. M scatter
             L2bar = L2bar*np.exp(self.sigma_scatter**2*np.log(10)**2)
             # Special case for Tony Li model- scatter does not preserve LCO
-            if self.model_name=='TonyLi':
+            if self.model_name=='TonyLi': 
                 alpha = self.model_par['alpha']
                 sig_SFR = self.model_par['sig_SFR']
                 L2bar = L2bar*np.exp((2.*alpha**-2-alpha**-1)
@@ -1300,7 +1307,7 @@ class LineModel(object):
             else:
                 Mass_Dep = self.LofM*self.dndM
                 itgrnd = np.tile(Mass_Dep,(self.k.size,1)).T*self.ft_NFW*self.bofM
-                wt = self.CLT*trapezoid(itgrnd*self.fduty,self.M,axis=0)
+                wt = self.CLT*np.trapz(itgrnd*self.fduty,self.M,axis=0)
                 # Special case for SFR(M) scatter in Tony Li model
                 if self.model_name=='TonyLi':
                     alpha = self.model_par['alpha']
@@ -1334,7 +1341,7 @@ class LineModel(object):
                     sig_SFR = self.model_par['sig_SFR']
                     itgrnd = itgrnd*np.exp((2.*alpha**-2-alpha**-1)
                                         *sig_SFR**2*np.log(10)**2)
-                wt = trapezoid(itgrnd*self.fduty,self.M,axis=0)
+                wt = np.trapz(itgrnd*self.fduty,self.M,axis=0)
                 return np.tile(self.CLT**2.*wt,(self.nmu,1))*self.proj_volume_ratio
         else:
             return np.zeros(self.Pm.shape)*self.Pshot.unit
@@ -1393,7 +1400,7 @@ class LineModel(object):
                     for imu in range(self.nmu):
                         #Get the unconvolved power spectrum in the sum of vectors
                         qsum_grid,musum_grid = add_vector(self.k[ik],self.mu[imu],qi_grid,-muqi_grid)
-                        Pconv[imu,ik] = trapezoid(trapezoid(qi_grid**2*Pkres_interp((qsum_grid.value,musum_grid.value))*Pkres.unit*np.abs(Wconv**2)/(2*np.pi)**2,muq,axis=0),q)
+                        Pconv[imu,ik] = np.trapz(np.trapz(qi_grid**2*Pkres_interp((qsum_grid.value,musum_grid.value))*Pkres.unit*np.abs(Wconv**2)/(2*np.pi)**2,muq,axis=0),q)
 
                 return Pconv/self.Vfield
             else:
@@ -1438,7 +1445,7 @@ class LineModel(object):
                     for imu in range(self.nmu):
                         #Get the unconvolved power spectrum in the sum of vectors
                         qsum_grid,musum_grid = add_vector(self.k[ik],self.mu[imu],qi_grid,-muqi_grid)
-                        Pconv[imu,ik] = trapezoid(trapezoid(qi_grid**2*Pkres_interp((qsum_grid.value,musum_grid.value))*Pkres.unit*np.abs(Wconv**2)/(2*np.pi)**2,muq,axis=0),q)
+                        Pconv[imu,ik] = np.trapz(np.trapz(qi_grid**2*Pkres_interp((qsum_grid.value,musum_grid.value))*Pkres.unit*np.abs(Wconv**2)/(2*np.pi)**2,muq,axis=0),q)
 
                 return Pconv/self.Vfield
             return self.Wk*P
@@ -1456,16 +1463,16 @@ class LineModel(object):
     @cached_property
     def Pk_0_signal(self):
         '''
-        Monopole of the signal power spectrum as function of k
+        Monopole of the signal power spectrum as function of k  
         '''
-        return 0.5*trapezoid(self.Pk_signal,self.mu,axis=0)
+        return 0.5*np.trapz(self.Pk_signal,self.mu,axis=0)
     
     @cached_property
     def Pk_0_interloper(self):
         '''
         Monopole of the interloper power spectrum as function of k
         '''
-        return 0.5*trapezoid(self.Pk_interloper,self.mu,axis=0)
+        return 0.5*np.trapz(self.Pk_interloper,self.mu,axis=0)
             
         
     @cached_property
@@ -1473,7 +1480,7 @@ class LineModel(object):
         '''
         Monopole of the power spectrum as function of k
         '''
-        return 0.5*trapezoid(self.Pk,self.mu,axis=0)
+        return 0.5*np.trapz(self.Pk,self.mu,axis=0)
         
         
     @cached_property
@@ -1482,7 +1489,7 @@ class LineModel(object):
         Quadrupole of the power spectrum as function of k
         '''
         L2 = legendre(2)
-        return 2.5*trapezoid(self.Pk*L2(self.mui_grid),self.mu,axis=0)
+        return 2.5*np.trapz(self.Pk*L2(self.mui_grid),self.mu,axis=0)
     
     @cached_property
     def Pk_2_signal(self):
@@ -1490,7 +1497,7 @@ class LineModel(object):
         Quadrupole of the power spectrum as function of k
         '''
         L2 = legendre(2)
-        return 2.5*trapezoid(self.Pk_signal*L2(self.mui_grid),self.mu,axis=0)
+        return 2.5*np.trapz(self.Pk_signal*L2(self.mui_grid),self.mu,axis=0)
     
     @cached_property
     def Pk_2_interloper(self):
@@ -1498,7 +1505,7 @@ class LineModel(object):
         Quadrupole of the power spectrum as function of k
         '''
         L2 = legendre(2)
-        return 2.5*trapezoid(self.Pk_interloper*L2(self.mui_grid),self.mu,axis=0)
+        return 2.5*np.trapz(self.Pk_interloper*L2(self.mui_grid),self.mu,axis=0)
         
         
     @cached_property
@@ -1507,7 +1514,7 @@ class LineModel(object):
         Hexadecapole of the power spectrum as function of k
         '''
         L4 = legendre(4)
-        return 4.5*trapezoid(self.Pk*L4(self.mui_grid),self.mu,axis=0)
+        return 4.5*np.trapz(self.Pk*L4(self.mui_grid),self.mu,axis=0)
     
     @cached_property
     def Pk_4_signal(self):
@@ -1515,7 +1522,7 @@ class LineModel(object):
         Hexadecapole of the interloper power spectrum as function of k
         '''
         L4 = legendre(4)
-        return 4.5*trapezoid(self.Pk_signal*L4(self.mui_grid),self.mu,axis=0)
+        return 4.5*np.trapz(self.Pk_signal*L4(self.mui_grid),self.mu,axis=0)
     
     @cached_property
     def Pk_4_interloper(self):
@@ -1523,7 +1530,7 @@ class LineModel(object):
         Hexadecapole of the interloper power spectrum as function of k
         '''
         L4 = legendre(4)
-        return 4.5*trapezoid(self.Pk_interloper*L4(self.mui_grid),self.mu,axis=0)
+        return 4.5*np.trapz(self.Pk_interloper*L4(self.mui_grid),self.mu,axis=0)
         
         
     def Pk_l(self,l):
@@ -1538,7 +1545,7 @@ class LineModel(object):
             return self.Pk_4
         else:
             Ll = legendre(l)
-            return (2.*l+1.)/2.*trapezoid(self.Pk*Ll(self.mui_grid),
+            return (2.*l+1.)/2.*np.trapz(self.Pk*Ll(self.mui_grid),
                                         self.mu,axis=0)
     
     def Pk_l_signal(self,l):
@@ -1553,7 +1560,7 @@ class LineModel(object):
             return self.Pk_4_signal
         else:
             Ll = legendre(l)
-            return (2.*l+1.)/2.*trapezoid(self.Pk_signal*Ll(self.mui_grid),
+            return (2.*l+1.)/2.*np.trapz(self.Pk_signal*Ll(self.mui_grid),
                                         self.mu,axis=0)
     
     def Pk_l_interloper(self,l):
@@ -1568,10 +1575,81 @@ class LineModel(object):
             return self.Pk_4_interloper
         else:
             Ll = legendre(l)
-            return (2.*l+1.)/2.*trapezoid(self.Pk_interloper*Ll(self.mui_grid),
-                                        self.mu,axis=0)
+            return (2.*l+1.)/2.*np.trapz(self.Pk_interloper*Ll(self.mui_grid), self.mu,axis=0)
                  
-                 
+
+    #Angular power spectrum 
+    @cached_property
+    def ell(self):
+        ell_values = np.linspace(self.ell_min, self.ell_max, self.n_ell, dtype=int)
+        return  ell_values
+   
+    @cached_property    
+    def coeff_c1(self):
+        c1arr = np.array([])
+        for ell_num in range((len(self.ell)+1)):
+            c1 = (2/3) +(8/3)*((np.pi/5)**(1/2))*gaunt(2, ell_num ,ell_num , 0, 0 ,0) # this term calculates coeff of x
+            c1arr =  np.append(c1arr,c1.evalf() )
+        return c1arr
+        #c1 = (2/3) +(8/3)*((np.pi/5)**(1/2))*gaunt(2, ell_num ,ell_num , 0, 0 ,0) # this term calculates coeff of x
+        #print(c1.evalf())
+        #return c1.evalf()
+
+
+    @cached_property    
+    def coeff_c3(self):
+        c1arr = np.array([])
+        for ell_num in range((len(self.ell)+1)):
+            c1 = (1/3) +(4/3)*((np.pi/5)**(1/2))*gaunt(2, ell_num ,ell_num , 0, 0 ,0) # this term calculates coeff of x
+            c1arr =  np.append(c1arr,c1.evalf() )
+        return c1arr
+        #c1 = (2/3) +(8/3)*((np.pi/5)**(1/2))*gaunt(2, ell_num ,ell_num , 0, 0 ,0) # this term calculates coeff of x
+        #print(c1.evalf())
+        #return c1.evalf()
+
+    @cached_property
+    def coeff_c2(self):
+        c2arr = np.array([])
+        for ell_num in range((len(self.ell)+1)):
+            term1 = (1 / 5)
+            term2 = (40/35)*((np.pi/5)**(1/2))*gaunt(2,ell_num, ell_num , 0, 0 , 0  )
+            term3 =  (16/(35*3)*(np.pi)**(1/2))*gaunt(4, ell_num, ell_num  , 0,0 , 0 )  # these 3 terms calculates coeff of x^2
+            c2 = term1 + term2 + term3
+            c2arr =  np.append(c2arr,c2.evalf() )
+        return c2arr
+    @cached_property
+    def get_coefficients(self):
+        return self.ell, self.coeff_c1(), self.coeff_c2()
+
+
+# Generate ell values using numpy (linspace will return floats, so we cast to int) 
+#    ell_values = np.linspace(1, 5, 5, dtype=int)
+
+# Use a list comprehension to compute the coefficients for all ell
+    #coefficients_list = [WignerCoefficientCalculator(ell).get_coefficients() for ell in ell_values]
+
+# Print or store the results
+
+   #for ell, c1, c2 in coefficients_list:    
+   #    print(f"ell={ell}, c1={c1:.6f}, c2={c2:.6f}")
+   # ell = np.linspace(1, 100, num=100, endpoint=True, retstep=False, dtype=None, axis=0)
+   # def coeff(self):  
+    #   c2 = (-2/5) + (80/35)*(wigner_3j(2, self.ell, self.ell , 0, 0 , 0  )**2)*(2*self.ell+1)+ (16/35)*(wigner_3j(4, self.ell, self.ell  , 0, 0 , 0 )**2)*            (2*ell+1) #coefficient of x^2 
+    #    c2_n = c2.evalf() #caculates the numerical value of the expressions. 
+    #    c1 = (2/3) +(8/3)*wigner_3j(2, self.ell ,self.ell , 0, 0 , 0)   #coefficient of x 
+    #    c1_n= c1.evalf() #caculates the numerical value of the expressions. 
+    #    return c1_n ,c2_n
+
+    
+
+
+
+
+
+    
+
+
+    
     #############################################
     #############################################
     ### Voxel Intensity Distribution Functions ##
@@ -1649,7 +1727,7 @@ class LineModel(object):
         mu0 = 0.5*self.sigma_scatter**2*np.log(10)-np.log10(LofM0/u.Lsun)
         P1_0 = (np.exp(-(np.log10(L/u.Lsun)+mu0)**2/(2*self.sigma_scatter**2))/
                 (self.XLT*L*self.sigma_scatter*np.log(10)*np.sqrt(2*np.pi)))
-        P1_0 = P1_0/trapezoid(P1_0,Tlog)
+        P1_0 = P1_0/np.trapz(P1_0,Tlog)
         fT_0,fP1_0 = ft_log(P1_0.value,Tlog.value)
         return interp1d(fT_0,fP1_0,fill_value=(1.,0.),bounds_error=False)
     
@@ -1720,7 +1798,7 @@ class LineModel(object):
         '''
         
         itgrnd = self.ki_grid**2*self.Wk*self.Pm/(4*np.pi**2)
-        return trapezoid(trapezoid(itgrnd,self.k,axis=1),self.mu)
+        return np.trapz(np.trapz(itgrnd,self.k,axis=1),self.mu)
     
     @cached_vid_property
     def fPT_S(self):
@@ -1735,8 +1813,8 @@ class LineModel(object):
         
         pp = self.Vvox*dndM*(self.fP1-1)
 
-        fPun = np.exp(trapezoid(pp,self.M,axis=0))
-        fPcl = np.exp(trapezoid(pp*bM,self.M,axis=0)**2*self.Pval/2.)
+        fPun = np.exp(np.trapz(pp,self.M,axis=0))
+        fPcl = np.exp(np.trapz(pp*bM,self.M,axis=0)**2*self.Pval/2.)
         fP = fPun*fPcl
         
         if self.subtract_VID_mean:
@@ -1758,7 +1836,7 @@ class LineModel(object):
         in any given voxel.
         '''
         P = ift(self.fPT_S,self.fT).real
-        nrm = trapezoid(P,self.T)
+        nrm = np.trapz(P,self.T)
         print(nrm.unit)
         if abs(nrm-1)>1e-1:
             #raise ValueError('PT not properly normalized.  Consider adjusting T binning')
@@ -1772,7 +1850,7 @@ class LineModel(object):
         in any given voxel.
         '''
         P = ift(self.fPT,self.fT).real
-        nrm = trapezoid(P,self.T)
+        nrm = np.trapz(P,self.T)
         print(nrm.unit)
         if abs(nrm-1)>1e-1:
             #raise ValueError('PT not properly normalized.  Consider adjusting T binning')
@@ -2060,12 +2138,8 @@ class LineModel(object):
             setattr(self, key, new_params[key])
         
         # Set z_proj = z if not projecting
-        try:
-            if self._input_params.z_proj is None:
-            	self.z_proj = self.z
-        except AttributeError:
-            if not hasattr(self._input_params,'z_proj'):
-                self.z_proj = self.z
+        if self._input_params['z_proj'] is None:
+        	self.z_proj = self.z
                  
             
     #####################################################
