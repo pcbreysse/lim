@@ -1570,6 +1570,70 @@ class LineModel(object):
             Ll = legendre(l)
             return (2.*l+1.)/2.*trapezoid(self.Pk_interloper*Ll(self.mui_grid),
                                         self.mu,axis=0)
+    
+    
+    
+    #Angular power spectrum 
+    @cached_property
+    def ell(self):
+        ell_values = np.linspace(self.ell_min, self.ell_max, self.n_ell, dtype=int)
+        return  ell_values
+   
+    @cached_property    
+    def coeff_c1(self):
+        c1arr = np.array([])
+        for ell_num in range((len(self.ell)+1)):
+            c1 = (2/3) +(8/3)*((np.pi/5)**(1/2))*gaunt(2, ell_num ,ell_num , 0, 0 ,0) # this term calculates coeff of x
+            c1arr =  np.append(c1arr,c1.evalf() )
+        return c1arr
+        #c1 = (2/3) +(8/3)*((np.pi/5)**(1/2))*gaunt(2, ell_num ,ell_num , 0, 0 ,0) # this term calculates coeff of x
+        #print(c1.evalf())
+        #return c1.evalf()
+
+
+    @cached_property    
+    def coeff_c3(self):
+        c1arr = np.array([])
+        for ell_num in range((len(self.ell)+1)):
+            c1 = (1/3) +(4/3)*((np.pi/5)**(1/2))*gaunt(2, ell_num ,ell_num , 0, 0 ,0) # this term calculates coeff of x
+            c1arr =  np.append(c1arr,c1.evalf() )
+        return c1arr
+        #c1 = (2/3) +(8/3)*((np.pi/5)**(1/2))*gaunt(2, ell_num ,ell_num , 0, 0 ,0) # this term calculates coeff of x
+        #print(c1.evalf())
+        #return c1.evalf()
+
+    @cached_property
+    def coeff_c2(self):
+        c2arr = np.array([])
+        for ell_num in range((len(self.ell)+1)):
+            term1 = (1 / 5)
+            term2 = (40/35)*((np.pi/5)**(1/2))*gaunt(2,ell_num, ell_num , 0, 0 , 0  )
+            term3 =  (16/(35*3)*(np.pi)**(1/2))*gaunt(4, ell_num, ell_num  , 0,0 , 0 )  # these 3 terms calculates coeff of x^2
+            c2 = term1 + term2 + term3
+            c2arr =  np.append(c2arr,c2.evalf() )
+        return c2arr
+    @cached_property
+    def get_coefficients(self):
+        return self.ell, self.coeff_c1(), self.coeff_c2()
+
+
+# Generate ell values using numpy (linspace will return floats, so we cast to int) 
+#    ell_values = np.linspace(1, 5, 5, dtype=int)
+
+# Use a list comprehension to compute the coefficients for all ell
+    #coefficients_list = [WignerCoefficientCalculator(ell).get_coefficients() for ell in ell_values]
+
+# Print or store the results
+
+   #for ell, c1, c2 in coefficients_list:    
+   #    print(f"ell={ell}, c1={c1:.6f}, c2={c2:.6f}")
+   # ell = np.linspace(1, 100, num=100, endpoint=True, retstep=False, dtype=None, axis=0)
+   # def coeff(self):  
+    #   c2 = (-2/5) + (80/35)*(wigner_3j(2, self.ell, self.ell , 0, 0 , 0  )**2)*(2*self.ell+1)+ (16/35)*(wigner_3j(4, self.ell, self.ell  , 0, 0 , 0 )**2)*            (2*ell+1) #coefficient of x^2 
+    #    c2_n = c2.evalf() #caculates the numerical value of the expressions. 
+    #    c1 = (2/3) +(8/3)*wigner_3j(2, self.ell ,self.ell , 0, 0 , 0)   #coefficient of x 
+    #    c1_n= c1.evalf() #caculates the numerical value of the expressions. 
+    #    return c1_n ,c2_n
                  
                  
     #############################################
